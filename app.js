@@ -45,7 +45,7 @@ const DEFAULT_INCOME = [
 const DEFAULT_SINKING = [
   { id: 's-salvadanaio', name: 'Salvadanaio coppia', amount: 200, note: 'Crescita patrimonio, conto deposito intoccabile' },
   { id: 's-auto', name: 'Sinking auto', amount: 75, note: 'Ass. luglio + gennaio, bollo settembre, revisione gennaio 2027' },
-  { id: 's-regali', name: 'Sinking regali', amount: 40, note: 'Natale, compleanni, occasioni' }
+  { id: 's-regali', name: 'Sinking regali', amount: 50, note: 'Natale, compleanni, occasioni' }
 ];
 
 const DEFAULT_RECURRING = [
@@ -334,10 +334,10 @@ function migrateCategories() {
   if (sinksFiltered.length !== beforeLen) touchedS = true;
   const hasRegali = sinksFiltered.some(s => s.name && s.name.toLowerCase().includes('regali'));
   if (!hasRegali) {
-    sinksFiltered.push({ id: uuid(), name: 'Sinking regali', amount: 40, note: 'Natale, compleanni, occasioni' });
+    sinksFiltered.push({ id: uuid(), name: 'Sinking regali', amount: 50, note: 'Natale, compleanni, occasioni' });
     touchedS = true;
   }
-  if (touchedS) lsWrite('sinking', sinksFiltered);
+  if (touchedS) { lsWrite('sinking', sinksFiltered); schedulePush(); }
 }
 
 function filterMovementsByMonth(month) {
