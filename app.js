@@ -543,14 +543,18 @@ function renderMonth() {
   if (totBudget > 0) {
     heroEl.textContent = (residuo >= 0 ? '' : '-') + fmtEUR(Math.abs(residuo)) + ' €';
     heroEl.classList.toggle('hero-negative', residuo < 0);
-    let sub = 'Su ' + fmtEUR(totBudget) + ' € di tetto variabili. Speso ' + fmtEUR(totalVariable) + ' €';
-    sub += '.';
-    if (residuo < 0) sub = 'Tetto superato di ' + fmtEUR(Math.abs(residuo)) + ' €. ' + sub;
-    heroSub.textContent = sub;
+    if (residuo < 0) {
+      heroSub.textContent = 'Tetto superato di ' + fmtEUR(Math.abs(residuo)) + ' €.';
+      heroSub.classList.remove('hidden');
+    } else {
+      heroSub.textContent = '';
+      heroSub.classList.add('hidden');
+    }
   } else {
     heroEl.textContent = fmtEUR(totalVariable) + ' €';
     heroEl.classList.remove('hero-negative');
-    heroSub.textContent = 'Spese variabili del mese. Imposta i tetti dal tab Budget per vedere il residuo.';
+    heroSub.textContent = 'Imposta i tetti dal tab Budget per vedere il residuo.';
+    heroSub.classList.remove('hidden');
   }
 
   // Daily pace: quanto puoi spendere al giorno fino a fine mese (solo mese corrente)
@@ -571,15 +575,20 @@ function renderMonth() {
     heroPace.classList.add('hidden');
   }
 
-  // Spese fisse mensili
+  // Spese fisse mensili (collapsible: solo totale, click per dettaglio)
   const fixedBox = document.getElementById('fixed-box');
   const fixedDetails = CATEGORIES.filter(c => c.fixed && !c.hidden)
     .map(c => ({ c: c, amount: totals[c.id] || 0 }))
     .filter(x => x.amount > 0);
   if (fixedDetails.length > 0) {
     fixedBox.innerHTML =
-      '<div class="fixed-label">Spese fisse del mese</div>' +
-      '<div class="fixed-total">' + fmtEUR(totalFixed) + ' €</div>' +
+      '<div class="fixed-box-head">' +
+        '<div>' +
+          '<div class="fixed-label">Spese fisse del mese</div>' +
+          '<div class="fixed-total">' + fmtEUR(totalFixed) + ' €</div>' +
+        '</div>' +
+        '<div class="fixed-toggle" aria-hidden="true">&#9662;</div>' +
+      '</div>' +
       '<div class="fixed-breakdown">' +
       fixedDetails.map(x =>
         '<span class="fixed-pill" style="background:' + x.c.color + '">' +
@@ -1081,6 +1090,14 @@ async function startApp() {
   renderIncome();
 }
 
+function bindFixedBox() {
+  const el = document.getElementById('fixed-box');
+  if (!el) return;
+  el.addEventListener('click', function () {
+    el.classList.toggle('fixed-box-expanded');
+  });
+}
+
 function bindModalBackdrops() {
   const pairs = [
     ['add-modal', closeAddModal],
@@ -1108,6 +1125,7 @@ function boot() {
   bindIncome();
   bindEditRecurring();
   bindEditIncome();
+  bindFixedBox();
   bindModalBackdrops();
   bindNav();
   bindPin();
