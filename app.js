@@ -11,18 +11,18 @@ let syncEnabled = true;
 let syncInProgress = false;
 
 const CATEGORIES = [
-  { id: 'spesa-casa', name: 'Spesa + casa', color: '#22c55e' },
-  { id: 'benzina', name: 'Benzina', color: '#f59e0b' },
-  { id: 'bollette', name: 'Bollette/abbonamenti', color: '#3b82f6' },
-  { id: 'animali', name: 'Animali', color: '#a855f7' },
-  { id: 'sfizi', name: 'Sfizi e uscite', color: '#ef4444' },
-  { id: 'vacanze', name: 'Vacanze/viaggi', color: '#06b6d4' }
+  { id: 'spesa-casa', name: 'Spesa + casa', color: '#16a34a' },
+  { id: 'benzina', name: 'Benzina', color: '#d97706' },
+  { id: 'bollette', name: 'Bollette/abbonamenti', color: '#2563eb' },
+  { id: 'animali', name: 'Animali', color: '#9333ea' },
+  { id: 'sfizi', name: 'Sfizi e uscite', color: '#dc2626' },
+  { id: 'vacanze', name: 'Vacanze/viaggi', color: '#0891b2' }
 ];
 
 const DEFAULT_CAPS = {
   'spesa-casa': 400,
   'benzina': 100,
-  'bollette': 110,
+  'bollette': 155,
   'animali': 120,
   'sfizi': 0,
   'vacanze': 0
@@ -30,7 +30,23 @@ const DEFAULT_CAPS = {
 
 const DEFAULT_SINKING = [
   { id: 's-auto', name: 'Sinking auto', amount: 75, note: 'Ass. luglio + gennaio, bollo settembre, revisione gennaio 2027' },
+  { id: 's-palestra', name: 'Sinking palestra', amount: 13, note: '300 € ogni 2 anni' },
   { id: 's-emergenza', name: 'Fondo emergenza', amount: 200, note: 'Bonifico su conto deposito separato' }
+];
+
+const DEFAULT_RECURRING = [
+  { name: 'OpenAI ChatGPT Plus', amount: 21, category: 'bollette', dayOfMonth: 24 },
+  { name: 'Apple #1', amount: 9.99, category: 'bollette', dayOfMonth: 5 },
+  { name: 'Apple #2', amount: 9.99, category: 'bollette', dayOfMonth: 19 },
+  { name: 'CapCut Pro', amount: 11.99, category: 'bollette', dayOfMonth: 6 },
+  { name: 'Telecom Italia', amount: 10.97, category: 'bollette', dayOfMonth: 17 },
+  { name: 'Iliad', amount: 7.99, category: 'bollette', dayOfMonth: 20 },
+  { name: 'Netflix', amount: 6.99, category: 'bollette', dayOfMonth: 25 },
+  { name: 'Disney+', amount: 6.99, category: 'bollette', dayOfMonth: 17 },
+  { name: 'HBO Max', amount: 5.99, category: 'bollette', dayOfMonth: 11 },
+  { name: 'Canone conto Intesa', amount: 3.95, category: 'bollette', dayOfMonth: 28 },
+  { name: 'Bombola gas (media)', amount: 45, category: 'bollette', dayOfMonth: 15 },
+  { name: 'Pulizia signora', amount: 64, category: 'spesa-casa', dayOfMonth: 1 }
 ];
 
 // ============================================================
@@ -58,7 +74,22 @@ function lsWrite(key, value) {
 
 function loadMovements() { return lsRead('movements', []); }
 function saveMovements(arr) { lsWrite('movements', arr); schedulePush(); }
-function loadRecurring() { return lsRead('recurring', []); }
+function loadRecurring() {
+  let arr = lsRead('recurring', null);
+  if (arr === null) {
+    arr = DEFAULT_RECURRING.map(r => ({
+      id: uuid(),
+      name: r.name,
+      amount: r.amount,
+      category: r.category,
+      dayOfMonth: r.dayOfMonth,
+      active: true,
+      lastGeneratedMonth: null
+    }));
+    lsWrite('recurring', arr);
+  }
+  return arr;
+}
 function saveRecurring(arr) { lsWrite('recurring', arr); schedulePush(); }
 function loadCaps() { return lsRead('caps', { ...DEFAULT_CAPS }); }
 function saveCaps(obj) { lsWrite('caps', obj); schedulePush(); }
@@ -242,7 +273,20 @@ function ensureRecurringForMonth() {
 // ============================================================
 // AGGIUNGI
 // ============================================================
+function openAddModal() {
+  document.getElementById('add-modal').classList.remove('hidden');
+  document.getElementById('add-date').value = todayISO();
+  setTimeout(() => document.getElementById('add-amount').focus(), 100);
+}
+function closeAddModal() {
+  document.getElementById('add-modal').classList.add('hidden');
+  document.getElementById('add-form').reset();
+}
+
 function bindAdd() {
+  document.getElementById('fab-add').addEventListener('click', openAddModal);
+  document.getElementById('cancel-add').addEventListener('click', closeAddModal);
+
   document.getElementById('add-form').addEventListener('submit', function (e) {
     e.preventDefault();
     const dateStr = document.getElementById('add-date').value;
@@ -260,8 +304,7 @@ function bindAdd() {
       isRecurring: false
     });
     saveMovements(movs);
-    e.target.reset();
-    document.getElementById('add-date').value = todayISO();
+    closeAddModal();
     cachedMovements = filterMovementsByMonth(currentMonth);
     renderMonth();
     renderMovements();
@@ -342,8 +385,7 @@ function bindSplit() {
     }
     saveMovements(movs);
     splitModal.classList.add('hidden');
-    document.getElementById('add-form').reset();
-    document.getElementById('add-date').value = todayISO();
+    closeAddModal();
     cachedMovements = filterMovementsByMonth(currentMonth);
     renderMonth();
     renderMovements();
@@ -373,25 +415,40 @@ function renderMonth() {
   const counts = {};
   CATEGORIES.forEach(c => { totals[c.id] = 0; counts[c.id] = 0; });
   let total = 0;
+  let totalToday = 0;
+  const todayStr = todayISO();
   for (const m of cachedMovements) {
     totals[m.category] = (totals[m.category] || 0) + m.amount;
     counts[m.category] = (counts[m.category] || 0) + 1;
     total += m.amount;
+    const dStr = new Date(m.date).toISOString().slice(0, 10);
+    if (dStr === todayStr) totalToday += m.amount;
   }
-  document.getElementById('month-total').textContent = fmtEUR(total) + ' €';
-  document.getElementById('month-count').textContent = cachedMovements.length;
-
   const totBudget = Object.values(cachedCaps).reduce((a, b) => a + (b || 0), 0);
-  document.getElementById('month-budget').textContent = totBudget > 0 ? fmtEUR(totBudget) + ' €' : '—';
   const residuo = totBudget - total;
-  const resEl = document.getElementById('month-residuo');
+
+  // HERO
+  const heroEl = document.getElementById('hero-residuo');
+  const heroSub = document.getElementById('hero-sub');
   if (totBudget > 0) {
-    resEl.textContent = (residuo >= 0 ? '+' : '') + fmtEUR(residuo) + ' €';
-    resEl.style.color = residuo >= 0 ? '#22c55e' : '#ef4444';
+    heroEl.textContent = (residuo >= 0 ? '' : '-') + fmtEUR(Math.abs(residuo)) + ' €';
+    heroEl.classList.toggle('hero-negative', residuo < 0);
+    if (residuo >= 0) {
+      heroSub.textContent = 'Su ' + fmtEUR(totBudget) + ' € di tetto totale. Speso ' + fmtEUR(total) + ' €.';
+    } else {
+      heroSub.textContent = 'Hai superato il tetto di ' + fmtEUR(Math.abs(residuo)) + ' €.';
+    }
   } else {
-    resEl.textContent = '—';
-    resEl.style.color = '';
+    heroEl.textContent = fmtEUR(total) + ' €';
+    heroEl.classList.remove('hero-negative');
+    heroSub.textContent = 'Speso questo mese. Imposta i tetti dal tab Budget per vedere il residuo.';
   }
+
+  // KPI
+  document.getElementById('kpi-speso').textContent = fmtEUR(total) + ' €';
+  document.getElementById('kpi-tetto').textContent = totBudget > 0 ? fmtEUR(totBudget) + ' €' : '—';
+  document.getElementById('kpi-count').textContent = cachedMovements.length;
+  document.getElementById('kpi-oggi').textContent = fmtEUR(totalToday) + ' €';
 
   document.getElementById('categories-list').innerHTML = CATEGORIES.map(c => {
     const speso = totals[c.id];
@@ -614,8 +671,7 @@ function renderSinking() {
 // NAV
 // ============================================================
 const screenTitles = {
-  'add-screen': 'Aggiungi spesa',
-  'month-screen': 'Mese corrente',
+  'month-screen': 'Dashboard',
   'movements-screen': 'Movimenti',
   'recurring-screen': 'Spese ricorrenti',
   'budget-screen': 'Budget e accantonamenti'
