@@ -11,21 +11,23 @@ let syncEnabled = true;
 let syncInProgress = false;
 
 const CATEGORIES = [
-  { id: 'spesa-casa', name: 'Spesa + casa', color: '#16a34a' },
-  { id: 'benzina', name: 'Benzina', color: '#d97706' },
-  { id: 'bollette', name: 'Bollette/abbonamenti', color: '#2563eb' },
-  { id: 'animali', name: 'Animali', color: '#9333ea' },
-  { id: 'sfizi', name: 'Sfizi e uscite', color: '#dc2626' },
-  { id: 'vacanze', name: 'Vacanze/viaggi', color: '#0891b2' }
+  { id: 'spesa-casa', name: 'Spesa + casa', color: '#16a34a', fixed: false },
+  { id: 'benzina', name: 'Benzina', color: '#d97706', fixed: false },
+  { id: 'animali', name: 'Animali', color: '#9333ea', fixed: false },
+  { id: 'sfizi', name: 'Sfizi e uscite', color: '#dc2626', fixed: false },
+  { id: 'vacanze', name: 'Vacanze/viaggi', color: '#0891b2', fixed: false },
+  { id: 'abbonamenti', name: 'Abbonamenti streaming/SaaS', color: '#2563eb', fixed: true },
+  { id: 'casa-fisse', name: 'Casa - bombola gas', color: '#0d9488', fixed: true }
 ];
 
 const DEFAULT_CAPS = {
   'spesa-casa': 400,
   'benzina': 100,
-  'bollette': 155,
   'animali': 120,
   'sfizi': 0,
-  'vacanze': 0
+  'vacanze': 0,
+  'abbonamenti': 0,
+  'casa-fisse': 0
 };
 
 const DEFAULT_SINKING = [
@@ -35,17 +37,17 @@ const DEFAULT_SINKING = [
 ];
 
 const DEFAULT_RECURRING = [
-  { name: 'OpenAI ChatGPT Plus', amount: 21, category: 'bollette', dayOfMonth: 24 },
-  { name: 'Apple #1', amount: 9.99, category: 'bollette', dayOfMonth: 5 },
-  { name: 'Apple #2', amount: 9.99, category: 'bollette', dayOfMonth: 19 },
-  { name: 'CapCut Pro', amount: 11.99, category: 'bollette', dayOfMonth: 6 },
-  { name: 'Telecom Italia', amount: 10.97, category: 'bollette', dayOfMonth: 17 },
-  { name: 'Iliad', amount: 7.99, category: 'bollette', dayOfMonth: 20 },
-  { name: 'Netflix', amount: 6.99, category: 'bollette', dayOfMonth: 25 },
-  { name: 'Disney+', amount: 6.99, category: 'bollette', dayOfMonth: 17 },
-  { name: 'HBO Max', amount: 5.99, category: 'bollette', dayOfMonth: 11 },
-  { name: 'Canone conto Intesa', amount: 3.95, category: 'bollette', dayOfMonth: 28 },
-  { name: 'Bombola gas (media)', amount: 45, category: 'bollette', dayOfMonth: 15 }
+  { name: 'OpenAI ChatGPT Plus', amount: 21, category: 'abbonamenti', dayOfMonth: 24 },
+  { name: 'Apple #1', amount: 9.99, category: 'abbonamenti', dayOfMonth: 5 },
+  { name: 'Apple #2', amount: 9.99, category: 'abbonamenti', dayOfMonth: 19 },
+  { name: 'CapCut Pro', amount: 11.99, category: 'abbonamenti', dayOfMonth: 6 },
+  { name: 'Telecom Italia', amount: 10.97, category: 'abbonamenti', dayOfMonth: 17 },
+  { name: 'Iliad', amount: 7.99, category: 'abbonamenti', dayOfMonth: 20 },
+  { name: 'Netflix', amount: 6.99, category: 'abbonamenti', dayOfMonth: 25 },
+  { name: 'Disney+', amount: 6.99, category: 'abbonamenti', dayOfMonth: 17 },
+  { name: 'HBO Max', amount: 5.99, category: 'abbonamenti', dayOfMonth: 11 },
+  { name: 'Canone conto Intesa', amount: 3.95, category: 'abbonamenti', dayOfMonth: 28 },
+  { name: 'Bombola gas (media)', amount: 45, category: 'casa-fisse', dayOfMonth: 15 }
 ];
 
 const MIN_MONTH = new Date(2026, 4, 1); // maggio 2026 (mese 4 = maggio, 0-indexed)
@@ -232,6 +234,39 @@ function showToast(msg, isError) {
   t.textContent = msg;
   t.className = 'toast ' + (isError ? 'toast-error' : 'toast-ok') + ' toast-visible';
   setTimeout(() => t.classList.remove('toast-visible'), 2500);
+}
+
+function migrateBolletteSplit() {
+  // Migra vecchia categoria 'bollette' nelle 2 nuove ('abbonamenti' + 'casa-fisse')
+  let touched = false;
+  const movs = loadMovements();
+  for (const m of movs) {
+    if (m.category === 'bollette') {
+      const txt = ((m.note || '') + ' ' + (m.name || '')).toLowerCase();
+      m.category = txt.includes('bombola') || txt.includes('gas') ? 'casa-fisse' : 'abbonamenti';
+      touched = true;
+    }
+  }
+  if (touched) lsWrite('movements', movs);
+
+  const recs = loadRecurring();
+  let touchedR = false;
+  for (const r of recs) {
+    if (r.category === 'bollette') {
+      const n = (r.name || '').toLowerCase();
+      r.category = n.includes('bombola') || n.includes('gas') ? 'casa-fisse' : 'abbonamenti';
+      touchedR = true;
+    }
+  }
+  if (touchedR) lsWrite('recurring', recs);
+
+  const caps = loadCaps();
+  if ('bollette' in caps) {
+    delete caps.bollette;
+    if (!('abbonamenti' in caps)) caps.abbonamenti = 0;
+    if (!('casa-fisse' in caps)) caps['casa-fisse'] = 0;
+    lsWrite('caps', caps);
+  }
 }
 
 function filterMovementsByMonth(month) {
@@ -431,51 +466,74 @@ function renderMonth() {
   document.getElementById('month-label').textContent = monthLabel(currentMonth);
   updateMonthNavState();
   const totals = {};
-  const counts = {};
-  CATEGORIES.forEach(c => { totals[c.id] = 0; counts[c.id] = 0; });
-  let total = 0;
+  CATEGORIES.forEach(c => { totals[c.id] = 0; });
   let totalToday = 0;
-  let totalUpcoming = 0;
+  let totalVariable = 0;
+  let totalFixed = 0;
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const todayStr = todayISO();
   for (const m of cachedMovements) {
     totals[m.category] = (totals[m.category] || 0) + m.amount;
-    counts[m.category] = (counts[m.category] || 0) + 1;
-    total += m.amount;
+    const cat = getCategory(m.category);
+    if (cat && cat.fixed) totalFixed += m.amount;
+    else totalVariable += m.amount;
     const mDate = new Date(m.date);
     const dStr = mDate.toISOString().slice(0, 10);
     if (dStr === todayStr) totalToday += m.amount;
-    if (mDate > today) totalUpcoming += m.amount;
   }
-  const totBudget = Object.values(cachedCaps).reduce((a, b) => a + (b || 0), 0);
-  const residuo = totBudget - total;
 
-  // HERO
+  // Tetto su solo variabili
+  let totBudget = 0;
+  for (const c of CATEGORIES) {
+    if (!c.fixed) totBudget += (cachedCaps[c.id] || 0);
+  }
+  const residuo = totBudget - totalVariable;
+
+  // HERO (su variabili)
   const heroEl = document.getElementById('hero-residuo');
   const heroSub = document.getElementById('hero-sub');
   if (totBudget > 0) {
     heroEl.textContent = (residuo >= 0 ? '' : '-') + fmtEUR(Math.abs(residuo)) + ' €';
     heroEl.classList.toggle('hero-negative', residuo < 0);
-    let sub = 'Su ' + fmtEUR(totBudget) + ' € di tetto. Speso ' + fmtEUR(total) + ' €';
-    if (totalUpcoming > 0) {
-      sub += ' (di cui ' + fmtEUR(totalUpcoming) + ' € in arrivo nei prossimi giorni)';
-    }
+    let sub = 'Su ' + fmtEUR(totBudget) + ' € di tetto variabili. Speso ' + fmtEUR(totalVariable) + ' €';
     sub += '.';
     if (residuo < 0) sub = 'Tetto superato di ' + fmtEUR(Math.abs(residuo)) + ' €. ' + sub;
     heroSub.textContent = sub;
   } else {
-    heroEl.textContent = fmtEUR(total) + ' €';
+    heroEl.textContent = fmtEUR(totalVariable) + ' €';
     heroEl.classList.remove('hero-negative');
-    heroSub.textContent = 'Speso questo mese. Imposta i tetti dal tab Budget per vedere il residuo.';
+    heroSub.textContent = 'Spese variabili del mese. Imposta i tetti dal tab Budget per vedere il residuo.';
+  }
+
+  // Spese fisse mensili
+  const fixedBox = document.getElementById('fixed-box');
+  const fixedDetails = CATEGORIES.filter(c => c.fixed)
+    .map(c => ({ c: c, amount: totals[c.id] || 0 }))
+    .filter(x => x.amount > 0);
+  if (fixedDetails.length > 0) {
+    fixedBox.innerHTML =
+      '<div class="fixed-label">Spese fisse del mese</div>' +
+      '<div class="fixed-total">' + fmtEUR(totalFixed) + ' €</div>' +
+      '<div class="fixed-breakdown">' +
+      fixedDetails.map(x =>
+        '<span class="fixed-pill" style="background:' + x.c.color + '">' +
+        escapeHtml(x.c.name) + ': ' + fmtEUR(x.amount) + ' €</span>'
+      ).join('') +
+      '</div>';
+    fixedBox.classList.remove('hidden');
+  } else {
+    fixedBox.classList.add('hidden');
   }
 
   // KPI
-  document.getElementById('kpi-speso').textContent = fmtEUR(total) + ' €';
+  document.getElementById('kpi-speso').textContent = fmtEUR(totalVariable) + ' €';
   document.getElementById('kpi-tetto').textContent = totBudget > 0 ? fmtEUR(totBudget) + ' €' : '—';
   document.getElementById('kpi-oggi').textContent = fmtEUR(totalToday) + ' €';
 
-  document.getElementById('categories-list').innerHTML = CATEGORIES.map(c => {
+  // Categories list: solo variabili
+  const variableCats = CATEGORIES.filter(c => !c.fixed);
+  document.getElementById('categories-list').innerHTML = variableCats.map(c => {
     const speso = totals[c.id];
     const cap = cachedCaps[c.id] || 0;
     let pct, statusClass = '';
@@ -484,15 +542,14 @@ function renderMonth() {
       if (speso >= cap) statusClass = 'cat-over';
       else if (speso >= cap * 0.8) statusClass = 'cat-warn';
     } else {
-      const max = Math.max.apply(null, Object.values(totals).concat([1]));
+      const max = Math.max.apply(null, variableCats.map(vc => totals[vc.id]).concat([1]));
       pct = (speso / max) * 100;
     }
-    const capText = cap > 0 ? '/ ' + fmtEUR(cap) : '';
+    const capText = cap > 0 ? '/ ' + fmtEUR(cap) : '(libero)';
     return '<div class="cat-row ' + statusClass + '">' +
       '<div class="cat-row-head">' +
       '<span class="cat-dot" style="background:' + c.color + '"></span>' +
       '<span class="cat-name">' + c.name + '</span>' +
-      '<span class="cat-count">' + counts[c.id] + '</span>' +
       '<span class="cat-amount">' + fmtEUR(speso) + ' ' + capText + ' €</span>' +
       '</div>' +
       '<div class="cat-bar"><div class="cat-bar-fill" style="width:' + pct + '%;background:' + c.color + '"></div></div>' +
@@ -628,7 +685,7 @@ function renderRecurring() {
 // ============================================================
 function renderCaps() {
   const c = document.getElementById('caps-list');
-  c.innerHTML = CATEGORIES.map(cat =>
+  c.innerHTML = CATEGORIES.filter(cat => !cat.fixed).map(cat =>
     '<div class="cap-row">' +
     '<span class="cap-dot" style="background:' + cat.color + '"></span>' +
     '<label class="cap-label">' + cat.name + '</label>' +
@@ -641,8 +698,9 @@ function renderCaps() {
 function bindBudget() {
   document.getElementById('save-caps').addEventListener('click', function () {
     const inputs = document.querySelectorAll('.cap-input');
-    const values = {};
+    const values = { ...cachedCaps };
     inputs.forEach(i => { values[i.dataset.id] = parseFloat(i.value) || 0; });
+    CATEGORIES.forEach(c => { if (c.fixed) values[c.id] = 0; });
     saveCaps(values);
     cachedCaps = values;
     renderMonth();
@@ -774,6 +832,7 @@ function bindLogout() {
 async function startApp() {
   showApp();
   await initialSync();
+  migrateBolletteSplit();
   cachedRecurring = loadRecurring();
   ensureRecurringForMonth();
   cachedRecurring = loadRecurring();

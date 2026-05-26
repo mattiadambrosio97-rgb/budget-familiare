@@ -243,6 +243,45 @@ select { appearance: none; -webkit-appearance: none; background-image: url("data
   margin-top: 8px;
 }
 
+/* Spese fisse box */
+.fixed-box {
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-bottom: 16px;
+  box-shadow: var(--shadow-sm);
+}
+.fixed-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  margin-bottom: 4px;
+}
+.fixed-total {
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--text);
+  letter-spacing: -0.4px;
+  margin-bottom: 10px;
+}
+.fixed-breakdown {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.fixed-pill {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  color: white;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+}
+
 .month-header {
   display: flex;
   align-items: center;
