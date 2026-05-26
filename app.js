@@ -15,6 +15,8 @@ const CATEGORIES = [
   { id: 'benzina', name: 'Benzina', color: '#d97706', fixed: false },
   { id: 'animali', name: 'Animali', color: '#9333ea', fixed: false },
   { id: 'sfizi', name: 'Sfizi e uscite', color: '#dc2626', fixed: false },
+  { id: 'regali', name: 'Regali', color: '#db2777', fixed: false },
+  { id: 'abbigliamento', name: 'Abbigliamento', color: '#7c3aed', fixed: false },
   { id: 'abbonamenti', name: 'Abbonamenti streaming/SaaS', color: '#2563eb', fixed: true },
   { id: 'casa-gas', name: 'Casa - bombola gas', color: '#0d9488', fixed: true },
   { id: 'casa-pulizia', name: 'Casa - pulizia signora', color: '#0891b2', fixed: true },
@@ -27,6 +29,8 @@ const DEFAULT_CAPS = {
   'benzina': 100,
   'animali': 120,
   'sfizi': 200,
+  'regali': 0,
+  'abbigliamento': 0,
   'abbonamenti': 0,
   'casa-gas': 0,
   'casa-pulizia': 0,
@@ -39,9 +43,9 @@ const DEFAULT_INCOME = [
 ];
 
 const DEFAULT_SINKING = [
+  { id: 's-salvadanaio', name: 'Salvadanaio coppia', amount: 200, note: 'Crescita patrimonio, conto deposito intoccabile' },
   { id: 's-auto', name: 'Sinking auto', amount: 75, note: 'Ass. luglio + gennaio, bollo settembre, revisione gennaio 2027' },
-  { id: 's-palestra', name: 'Sinking palestra', amount: 13, note: '300 € ogni 2 anni' },
-  { id: 's-emergenza', name: 'Fondo emergenza', amount: 200, note: 'Bonifico su conto deposito separato' }
+  { id: 's-regali', name: 'Sinking regali', amount: 40, note: 'Natale, compleanni, occasioni' }
 ];
 
 const DEFAULT_RECURRING = [
@@ -310,10 +314,30 @@ function migrateCategories() {
   let touchedC = false;
   if ('bollette' in caps) { delete caps.bollette; touchedC = true; }
   if ('casa-fisse' in caps) { delete caps['casa-fisse']; touchedC = true; }
-  for (const id of ['abbonamenti', 'casa-gas', 'casa-pulizia', 'cura-personale']) {
+  for (const id of ['abbonamenti', 'casa-gas', 'casa-pulizia', 'cura-personale', 'regali', 'abbigliamento']) {
     if (!(id in caps)) { caps[id] = 0; touchedC = true; }
   }
   if (touchedC) lsWrite('caps', caps);
+
+  // Sinking: rinomina Fondo emergenza in Salvadanaio coppia, togli Palestra (pagata una tantum), aggiungi Regali se mancante
+  const sinks = loadSinking();
+  let touchedS = false;
+  for (const s of sinks) {
+    if (s.name === 'Fondo emergenza' || s.id === 's-emergenza') {
+      s.name = 'Salvadanaio coppia';
+      s.note = 'Crescita patrimonio, conto deposito intoccabile';
+      touchedS = true;
+    }
+  }
+  const beforeLen = sinks.length;
+  const sinksFiltered = sinks.filter(s => !(s.name && s.name.toLowerCase().includes('palestra')));
+  if (sinksFiltered.length !== beforeLen) touchedS = true;
+  const hasRegali = sinksFiltered.some(s => s.name && s.name.toLowerCase().includes('regali'));
+  if (!hasRegali) {
+    sinksFiltered.push({ id: uuid(), name: 'Sinking regali', amount: 40, note: 'Natale, compleanni, occasioni' });
+    touchedS = true;
+  }
+  if (touchedS) lsWrite('sinking', sinksFiltered);
 }
 
 function filterMovementsByMonth(month) {
