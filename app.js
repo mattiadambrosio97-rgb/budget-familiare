@@ -26,7 +26,7 @@ const DEFAULT_CAPS = {
   'spesa-casa': 400,
   'benzina': 100,
   'animali': 120,
-  'sfizi': 0,
+  'sfizi': 200,
   'abbonamenti': 0,
   'casa-gas': 0,
   'casa-pulizia': 0,
@@ -35,10 +35,7 @@ const DEFAULT_CAPS = {
 };
 
 const DEFAULT_INCOME = [
-  { id: 'i-piva', name: 'P.IVA (netta forfettario)', amount: 1122, note: '1.700 lordi mensili meno INPS, imposta sostitutiva, commercialista' },
-  { id: 'i-extra', name: 'Extra mensile fisso', amount: 500, note: '' },
-  { id: 'i-royalties', name: 'Royalties (mensilizzate)', amount: 367, note: '1.100 € ogni 3 mesi prudente' },
-  { id: 'i-mich', name: 'Michelle YT/TikTok', amount: 100, note: 'Prudente, oggi reali ~200' }
+  { id: 'i-mattia', name: 'Mattia entrate nette', amount: 1700, note: 'Conservativo, solo Mattia' }
 ];
 
 const DEFAULT_SINKING = [
@@ -60,7 +57,8 @@ const DEFAULT_RECURRING = [
   { name: 'Canone conto Intesa', amount: 3.95, category: 'abbonamenti', dayOfMonth: 28 },
   { name: 'Bombola gas (media)', amount: 45, category: 'casa-gas', dayOfMonth: 15 },
   { name: 'Pulizia signora', amount: 64, category: 'casa-pulizia', dayOfMonth: 1 },
-  { name: 'Barbiere', amount: 30, category: 'cura-personale', dayOfMonth: 1 }
+  { name: 'Barbiere', amount: 30, category: 'cura-personale', dayOfMonth: 1 },
+  { name: 'Mich cura di sé', amount: 60, category: 'cura-personale', dayOfMonth: 1 }
 ];
 
 const MIN_MONTH = new Date(2026, 4, 1); // maggio 2026 (mese 4 = maggio, 0-indexed)
@@ -290,6 +288,11 @@ function migrateCategories() {
   }
   if (!hasBarbiere) {
     recs.push({ id: uuid(), name: 'Barbiere', amount: 30, category: 'cura-personale', dayOfMonth: 1, active: true, lastGeneratedMonth: null });
+    touchedR = true;
+  }
+  const hasMichCura = recs.some(r => r.name && r.name.toLowerCase().includes('mich'));
+  if (!hasMichCura) {
+    recs.push({ id: uuid(), name: 'Mich cura di sé', amount: 60, category: 'cura-personale', dayOfMonth: 1, active: true, lastGeneratedMonth: null });
     touchedR = true;
   }
 
