@@ -553,6 +553,24 @@ function renderMonth() {
     heroSub.textContent = 'Spese variabili del mese. Imposta i tetti dal tab Budget per vedere il residuo.';
   }
 
+  // Daily pace: quanto puoi spendere al giorno fino a fine mese (solo mese corrente)
+  const heroPace = document.getElementById('hero-pace');
+  const isCurrentMonth = (today.getFullYear() === currentMonth.getFullYear() && today.getMonth() === currentMonth.getMonth());
+  if (isCurrentMonth && totBudget > 0 && residuo > 0) {
+    const lastDay = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0).getDate();
+    const daysRemaining = lastDay - today.getDate() + 1; // incluso oggi
+    const dailyPace = residuo / daysRemaining;
+    const endDateStr = String(lastDay) + '/' + String(currentMonth.getMonth() + 1).padStart(2, '0');
+    const gg = daysRemaining === 1 ? '1 giorno' : daysRemaining + ' giorni';
+    heroPace.innerHTML =
+      '<span>Puoi spendere</span>' +
+      '<span class="pace-value">' + fmtEUR(dailyPace) + ' €/giorno</span>' +
+      '<span class="pace-meta">fino al ' + endDateStr + ' (' + gg + ')</span>';
+    heroPace.classList.remove('hidden');
+  } else {
+    heroPace.classList.add('hidden');
+  }
+
   // Spese fisse mensili
   const fixedBox = document.getElementById('fixed-box');
   const fixedDetails = CATEGORIES.filter(c => c.fixed && !c.hidden)
@@ -1063,6 +1081,22 @@ async function startApp() {
   renderIncome();
 }
 
+function bindModalBackdrops() {
+  const pairs = [
+    ['add-modal', closeAddModal],
+    ['edit-recurring-modal', closeEditRecurring],
+    ['edit-income-modal', closeEditIncome],
+    ['split-modal', function () { document.getElementById('split-modal').classList.add('hidden'); }]
+  ];
+  for (const [modalId, closeFn] of pairs) {
+    const el = document.getElementById(modalId);
+    if (!el) continue;
+    el.addEventListener('click', function (e) {
+      if (e.target === el) closeFn();
+    });
+  }
+}
+
 function boot() {
   populateCategoryDropdowns();
   bindAdd();
@@ -1074,6 +1108,7 @@ function boot() {
   bindIncome();
   bindEditRecurring();
   bindEditIncome();
+  bindModalBackdrops();
   bindNav();
   bindPin();
   bindLogout();
