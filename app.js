@@ -45,9 +45,10 @@ const DEFAULT_RECURRING = [
   { name: 'Disney+', amount: 6.99, category: 'bollette', dayOfMonth: 17 },
   { name: 'HBO Max', amount: 5.99, category: 'bollette', dayOfMonth: 11 },
   { name: 'Canone conto Intesa', amount: 3.95, category: 'bollette', dayOfMonth: 28 },
-  { name: 'Bombola gas (media)', amount: 45, category: 'bollette', dayOfMonth: 15 },
-  { name: 'Pulizia signora', amount: 64, category: 'spesa-casa', dayOfMonth: 1 }
+  { name: 'Bombola gas (media)', amount: 45, category: 'bollette', dayOfMonth: 15 }
 ];
+
+const MIN_MONTH = new Date(2026, 4, 1); // maggio 2026 (mese 4 = maggio, 0-indexed)
 
 // ============================================================
 // STATE
@@ -285,6 +286,7 @@ function closeAddModal() {
 
 function bindAdd() {
   document.getElementById('fab-add').addEventListener('click', openAddModal);
+  document.getElementById('top-add-btn').addEventListener('click', openAddModal);
   document.getElementById('cancel-add').addEventListener('click', closeAddModal);
 
   document.getElementById('add-form').addEventListener('submit', function (e) {
@@ -398,7 +400,10 @@ function bindSplit() {
 // ============================================================
 function bindMonthNav() {
   document.getElementById('prev-month').addEventListener('click', function () {
-    currentMonth.setMonth(currentMonth.getMonth() - 1);
+    const candidate = new Date(currentMonth);
+    candidate.setMonth(candidate.getMonth() - 1);
+    if (candidate < MIN_MONTH) return;
+    currentMonth = candidate;
     cachedMovements = filterMovementsByMonth(currentMonth);
     renderMonth(); renderMovements();
   });
@@ -409,20 +414,39 @@ function bindMonthNav() {
   });
 }
 
+function updateMonthNavState() {
+  const prev = new Date(currentMonth);
+  prev.setMonth(prev.getMonth() - 1);
+  const btn = document.getElementById('prev-month');
+  if (prev < MIN_MONTH) {
+    btn.classList.add('disabled');
+    btn.setAttribute('aria-disabled', 'true');
+  } else {
+    btn.classList.remove('disabled');
+    btn.removeAttribute('aria-disabled');
+  }
+}
+
 function renderMonth() {
   document.getElementById('month-label').textContent = monthLabel(currentMonth);
+  updateMonthNavState();
   const totals = {};
   const counts = {};
   CATEGORIES.forEach(c => { totals[c.id] = 0; counts[c.id] = 0; });
   let total = 0;
   let totalToday = 0;
+  let totalUpcoming = 0;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
   const todayStr = todayISO();
   for (const m of cachedMovements) {
     totals[m.category] = (totals[m.category] || 0) + m.amount;
     counts[m.category] = (counts[m.category] || 0) + 1;
     total += m.amount;
-    const dStr = new Date(m.date).toISOString().slice(0, 10);
+    const mDate = new Date(m.date);
+    const dStr = mDate.toISOString().slice(0, 10);
     if (dStr === todayStr) totalToday += m.amount;
+    if (mDate > today) totalUpcoming += m.amount;
   }
   const totBudget = Object.values(cachedCaps).reduce((a, b) => a + (b || 0), 0);
   const residuo = totBudget - total;
@@ -433,11 +457,13 @@ function renderMonth() {
   if (totBudget > 0) {
     heroEl.textContent = (residuo >= 0 ? '' : '-') + fmtEUR(Math.abs(residuo)) + ' €';
     heroEl.classList.toggle('hero-negative', residuo < 0);
-    if (residuo >= 0) {
-      heroSub.textContent = 'Su ' + fmtEUR(totBudget) + ' € di tetto totale. Speso ' + fmtEUR(total) + ' €.';
-    } else {
-      heroSub.textContent = 'Hai superato il tetto di ' + fmtEUR(Math.abs(residuo)) + ' €.';
+    let sub = 'Su ' + fmtEUR(totBudget) + ' € di tetto. Speso ' + fmtEUR(total) + ' €';
+    if (totalUpcoming > 0) {
+      sub += ' (di cui ' + fmtEUR(totalUpcoming) + ' € in arrivo nei prossimi giorni)';
     }
+    sub += '.';
+    if (residuo < 0) sub = 'Tetto superato di ' + fmtEUR(Math.abs(residuo)) + ' €. ' + sub;
+    heroSub.textContent = sub;
   } else {
     heroEl.textContent = fmtEUR(total) + ' €';
     heroEl.classList.remove('hero-negative');
@@ -447,7 +473,6 @@ function renderMonth() {
   // KPI
   document.getElementById('kpi-speso').textContent = fmtEUR(total) + ' €';
   document.getElementById('kpi-tetto').textContent = totBudget > 0 ? fmtEUR(totBudget) + ' €' : '—';
-  document.getElementById('kpi-count').textContent = cachedMovements.length;
   document.getElementById('kpi-oggi').textContent = fmtEUR(totalToday) + ' €';
 
   document.getElementById('categories-list').innerHTML = CATEGORIES.map(c => {
@@ -480,11 +505,13 @@ function renderMonth() {
 // ============================================================
 function renderMovements() {
   const catFilter = document.getElementById('movements-category-filter').value;
+  const showRecurring = document.getElementById('show-recurring-toggle').checked;
   let list = cachedMovements.slice();
   if (catFilter) list = list.filter(m => m.category === catFilter);
+  if (!showRecurring) list = list.filter(m => !m.isRecurring);
   const c = document.getElementById('movements-list');
   if (list.length === 0) {
-    c.innerHTML = '<p class="empty-msg">Nessun movimento in questo mese.</p>';
+    c.innerHTML = '<p class="empty-msg">Nessun movimento manuale in questo mese. Spunta "Mostra abbonamenti" per vedere anche i ricorrenti automatici.</p>';
     return;
   }
   c.innerHTML = list.map(m => {
@@ -509,6 +536,7 @@ function renderMovements() {
 
 function bindMovements() {
   document.getElementById('movements-category-filter').addEventListener('change', renderMovements);
+  document.getElementById('show-recurring-toggle').addEventListener('change', renderMovements);
   document.getElementById('movements-list').addEventListener('click', function (e) {
     const btn = e.target.closest('.movement-delete');
     if (!btn) return;
@@ -733,7 +761,9 @@ function bindPin() {
 }
 
 function bindLogout() {
-  document.getElementById('logout-btn').addEventListener('click', function () {
+  const btn = document.getElementById('logout-btn');
+  if (!btn) return;
+  btn.addEventListener('click', function () {
     if (confirm('Bloccare l\'app?')) {
       sessionStorage.removeItem('bf_unlocked');
       showPinScreen();

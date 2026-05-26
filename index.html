@@ -34,11 +34,12 @@
   <main id="app-container" class="hidden">
     <header class="app-header">
       <div class="header-title" id="header-title">Dashboard</div>
-      <button id="logout-btn" class="header-logout">Esci</button>
     </header>
 
     <!-- DASHBOARD MESE (schermata principale) -->
     <section id="month-screen" class="screen app-screen active">
+      <button id="top-add-btn" class="top-add-btn">+ Aggiungi spesa</button>
+
       <div class="hero-card">
         <div class="hero-label">Budget residuo questo mese</div>
         <div class="hero-value" id="hero-residuo">&mdash;</div>
@@ -51,7 +52,7 @@
         <button id="next-month" class="month-nav" aria-label="Mese successivo">&rsaquo;</button>
       </div>
 
-      <div class="kpi-grid">
+      <div class="kpi-grid kpi-grid-3">
         <div class="kpi-card">
           <div class="kpi-label">Speso</div>
           <div class="kpi-value" id="kpi-speso">0,00 &euro;</div>
@@ -59,10 +60,6 @@
         <div class="kpi-card">
           <div class="kpi-label">Tetto totale</div>
           <div class="kpi-value" id="kpi-tetto">&mdash;</div>
-        </div>
-        <div class="kpi-card">
-          <div class="kpi-label">Movimenti</div>
-          <div class="kpi-value" id="kpi-count">0</div>
         </div>
         <div class="kpi-card">
           <div class="kpi-label">Speso oggi</div>
@@ -80,6 +77,10 @@
         <select id="movements-category-filter">
           <option value="">Tutte le categorie</option>
         </select>
+        <label class="toggle-inline">
+          <input type="checkbox" id="show-recurring-toggle" />
+          <span>Mostra abbonamenti</span>
+        </label>
       </div>
       <div id="movements-list" class="movements-list"></div>
     </section>
