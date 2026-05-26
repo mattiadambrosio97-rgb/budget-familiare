@@ -28,7 +28,7 @@ const DEFAULT_CAPS = {
   'spesa-casa': 400,
   'benzina': 100,
   'animali': 120,
-  'sfizi': 200,
+  'sfizi': 300,
   'regali': 0,
   'abbigliamento': 0,
   'abbonamenti': 0,
