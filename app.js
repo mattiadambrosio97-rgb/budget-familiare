@@ -6,7 +6,7 @@
 const STORAGE_PREFIX = 'bf_';
 const PIN = '020597';
 const FB_URL = 'https://agenda-f3298-default-rtdb.europe-west1.firebasedatabase.app/budget.json';
-const SYNC_KEYS = ['movements', 'recurring', 'caps', 'sinking'];
+const SYNC_KEYS = ['movements', 'recurring', 'caps', 'sinking', 'income'];
 let syncEnabled = true;
 let syncInProgress = false;
 
@@ -33,6 +33,13 @@ const DEFAULT_CAPS = {
   'cura-personale': 0,
   'vacanze': 0
 };
+
+const DEFAULT_INCOME = [
+  { id: 'i-piva', name: 'P.IVA (netta forfettario)', amount: 1122, note: '1.700 lordi mensili meno INPS, imposta sostitutiva, commercialista' },
+  { id: 'i-extra', name: 'Extra mensile fisso', amount: 500, note: '' },
+  { id: 'i-royalties', name: 'Royalties (mensilizzate)', amount: 367, note: '1.100 € ogni 3 mesi prudente' },
+  { id: 'i-mich', name: 'Michelle YT/TikTok', amount: 100, note: 'Prudente, oggi reali ~200' }
+];
 
 const DEFAULT_SINKING = [
   { id: 's-auto', name: 'Sinking auto', amount: 75, note: 'Ass. luglio + gennaio, bollo settembre, revisione gennaio 2027' },
@@ -66,6 +73,7 @@ let cachedMovements = [];
 let cachedRecurring = [];
 let cachedCaps = { ...DEFAULT_CAPS };
 let cachedSinking = [...DEFAULT_SINKING];
+let cachedIncome = [...DEFAULT_INCOME];
 
 // ============================================================
 // STORAGE (localStorage)
@@ -104,6 +112,8 @@ function loadCaps() { return lsRead('caps', { ...DEFAULT_CAPS }); }
 function saveCaps(obj) { lsWrite('caps', obj); schedulePush(); }
 function loadSinking() { return lsRead('sinking', [...DEFAULT_SINKING]); }
 function saveSinking(arr) { lsWrite('sinking', arr); schedulePush(); }
+function loadIncome() { return lsRead('income', [...DEFAULT_INCOME]); }
+function saveIncome(arr) { lsWrite('income', arr); schedulePush(); }
 
 // ============================================================
 // FIREBASE SYNC (Realtime DB via REST)
@@ -552,6 +562,29 @@ function renderMonth() {
     fixedBox.classList.add('hidden');
   }
 
+  // Quadro mensile (piano)
+  const quadroBox = document.getElementById('quadro-box');
+  const entrateTot = cachedIncome.reduce((a, i) => a + (i.amount || 0), 0);
+  const fissiAttesi = cachedRecurring.filter(r => r.active).reduce((a, r) => a + (r.amount || 0), 0);
+  const tettiVariabili = CATEGORIES.filter(c => !c.fixed && !c.hidden).reduce((a, c) => a + (cachedCaps[c.id] || 0), 0);
+  const accantonamentiTot = cachedSinking.reduce((a, s) => a + (s.amount || 0), 0);
+  const margineTeorico = entrateTot - fissiAttesi - tettiVariabili - accantonamentiTot;
+  const marginClass = margineTeorico >= 0 ? 'quadro-good' : 'quadro-bad';
+  if (entrateTot > 0) {
+    quadroBox.classList.remove('hidden');
+    quadroBox.innerHTML =
+      '<div class="quadro-title">Quadro mensile (piano)</div>' +
+      '<div class="quadro-rows">' +
+        '<div class="quadro-row"><span>Entrate stimate</span><strong>' + fmtEUR(entrateTot) + ' €</strong></div>' +
+        '<div class="quadro-row neg"><span>− Spese fisse attese</span><strong>' + fmtEUR(fissiAttesi) + ' €</strong></div>' +
+        '<div class="quadro-row neg"><span>− Tetti variabili</span><strong>' + fmtEUR(tettiVariabili) + ' €</strong></div>' +
+        '<div class="quadro-row neg"><span>− Accantonamenti</span><strong>' + fmtEUR(accantonamentiTot) + ' €</strong></div>' +
+        '<div class="quadro-row quadro-margin ' + marginClass + '"><span>= Margine libero teorico</span><strong>' + (margineTeorico >= 0 ? '+' : '') + fmtEUR(margineTeorico) + ' €</strong></div>' +
+      '</div>';
+  } else {
+    quadroBox.classList.add('hidden');
+  }
+
   // KPI
   document.getElementById('kpi-speso').textContent = fmtEUR(totalVariable) + ' €';
   document.getElementById('kpi-tetto').textContent = totBudget > 0 ? fmtEUR(totBudget) + ' €' : '—';
@@ -759,6 +792,55 @@ function bindBudget() {
   });
 }
 
+function renderIncome() {
+  const c = document.getElementById('income-list');
+  if (cachedIncome.length === 0) {
+    c.innerHTML = '<p class="empty-msg">Nessuna entrata configurata.</p>';
+    return;
+  }
+  const totale = cachedIncome.reduce((a, s) => a + (s.amount || 0), 0);
+  c.innerHTML = '<div class="sink-total income-total">Totale entrate stimate: <strong>' + fmtEUR(totale) + ' &euro;/mese</strong></div>' +
+    cachedIncome.map(s =>
+      '<div class="sink-item">' +
+      '<div class="sink-info">' +
+      '<div class="sink-name">' + escapeHtml(s.name) + '</div>' +
+      (s.note ? '<div class="sink-note">' + escapeHtml(s.note) + '</div>' : '') +
+      '</div>' +
+      '<div class="sink-amount">' + fmtEUR(s.amount) + ' &euro;</div>' +
+      '<button class="btn-small btn-danger" data-action="del-income" data-id="' + s.id + '" aria-label="Elimina">&times;</button>' +
+      '</div>'
+    ).join('');
+}
+
+function bindIncome() {
+  document.getElementById('income-form').addEventListener('submit', function (e) {
+    e.preventDefault();
+    const name = document.getElementById('inc-name').value.trim();
+    const amount = parseFloat(document.getElementById('inc-amount').value);
+    const note = document.getElementById('inc-note').value.trim();
+    if (!name || !amount) return;
+    cachedIncome.push({ id: uuid(), name: name, amount: amount, note: note });
+    saveIncome(cachedIncome);
+    e.target.reset();
+    renderIncome();
+    renderMonth();
+    showToast('Entrata aggiunta');
+  });
+
+  document.getElementById('income-list').addEventListener('click', function (e) {
+    const btn = e.target.closest('[data-action="del-income"]');
+    if (!btn) return;
+    const id = btn.dataset.id;
+    const it = cachedIncome.find(s => s.id === id);
+    if (it && confirm('Eliminare "' + it.name + '"?')) {
+      cachedIncome = cachedIncome.filter(s => s.id !== id);
+      saveIncome(cachedIncome);
+      renderIncome();
+      renderMonth();
+    }
+  });
+}
+
 function renderSinking() {
   const c = document.getElementById('sinking-list');
   if (cachedSinking.length === 0) {
@@ -866,12 +948,14 @@ async function startApp() {
   cachedMovements = filterMovementsByMonth(currentMonth);
   cachedCaps = loadCaps();
   cachedSinking = loadSinking();
+  cachedIncome = loadIncome();
   document.getElementById('add-date').value = todayISO();
   renderMonth();
   renderMovements();
   renderRecurring();
   renderCaps();
   renderSinking();
+  renderIncome();
 }
 
 function boot() {
@@ -882,6 +966,7 @@ function boot() {
   bindMovements();
   bindRecurring();
   bindBudget();
+  bindIncome();
   bindNav();
   bindPin();
   bindLogout();

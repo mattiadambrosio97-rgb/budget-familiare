@@ -282,6 +282,45 @@ select { appearance: none; -webkit-appearance: none; background-image: url("data
   letter-spacing: 0.2px;
 }
 
+/* Quadro mensile (piano) */
+.quadro-box {
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-bottom: 16px;
+  box-shadow: var(--shadow-sm);
+}
+.quadro-title {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  margin-bottom: 10px;
+}
+.quadro-rows { display: flex; flex-direction: column; gap: 6px; }
+.quadro-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 14px;
+  padding: 6px 0;
+}
+.quadro-row span { color: var(--text); }
+.quadro-row strong { color: var(--text); font-weight: 700; }
+.quadro-row.neg strong { color: var(--text-muted); }
+.quadro-margin {
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+  margin-top: 4px;
+  font-weight: 700;
+}
+.quadro-margin.quadro-good strong { color: var(--primary); font-size: 17px; }
+.quadro-margin.quadro-bad strong { color: var(--danger); font-size: 17px; }
+
+.income-total { background: #fef3c7 !important; color: #92400e !important; }
+
 .month-header {
   display: flex;
   align-items: center;
