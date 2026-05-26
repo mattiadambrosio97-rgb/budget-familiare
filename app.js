@@ -15,9 +15,11 @@ const CATEGORIES = [
   { id: 'benzina', name: 'Benzina', color: '#d97706', fixed: false },
   { id: 'animali', name: 'Animali', color: '#9333ea', fixed: false },
   { id: 'sfizi', name: 'Sfizi e uscite', color: '#dc2626', fixed: false },
-  { id: 'vacanze', name: 'Vacanze/viaggi', color: '#0891b2', fixed: false },
   { id: 'abbonamenti', name: 'Abbonamenti streaming/SaaS', color: '#2563eb', fixed: true },
-  { id: 'casa-fisse', name: 'Casa - bombola gas', color: '#0d9488', fixed: true }
+  { id: 'casa-gas', name: 'Casa - bombola gas', color: '#0d9488', fixed: true },
+  { id: 'casa-pulizia', name: 'Casa - pulizia signora', color: '#0891b2', fixed: true },
+  { id: 'cura-personale', name: 'Cura personale', color: '#be185d', fixed: true },
+  { id: 'vacanze', name: 'Vacanze/viaggi', color: '#475569', fixed: false, hidden: true }
 ];
 
 const DEFAULT_CAPS = {
@@ -25,9 +27,11 @@ const DEFAULT_CAPS = {
   'benzina': 100,
   'animali': 120,
   'sfizi': 0,
-  'vacanze': 0,
   'abbonamenti': 0,
-  'casa-fisse': 0
+  'casa-gas': 0,
+  'casa-pulizia': 0,
+  'cura-personale': 0,
+  'vacanze': 0
 };
 
 const DEFAULT_SINKING = [
@@ -47,7 +51,9 @@ const DEFAULT_RECURRING = [
   { name: 'Disney+', amount: 6.99, category: 'abbonamenti', dayOfMonth: 17 },
   { name: 'HBO Max', amount: 5.99, category: 'abbonamenti', dayOfMonth: 11 },
   { name: 'Canone conto Intesa', amount: 3.95, category: 'abbonamenti', dayOfMonth: 28 },
-  { name: 'Bombola gas (media)', amount: 45, category: 'casa-fisse', dayOfMonth: 15 }
+  { name: 'Bombola gas (media)', amount: 45, category: 'casa-gas', dayOfMonth: 15 },
+  { name: 'Pulizia signora', amount: 64, category: 'casa-pulizia', dayOfMonth: 1 },
+  { name: 'Barbiere', amount: 30, category: 'cura-personale', dayOfMonth: 1 }
 ];
 
 const MIN_MONTH = new Date(2026, 4, 1); // maggio 2026 (mese 4 = maggio, 0-indexed)
@@ -236,14 +242,18 @@ function showToast(msg, isError) {
   setTimeout(() => t.classList.remove('toast-visible'), 2500);
 }
 
-function migrateBolletteSplit() {
-  // Migra vecchia categoria 'bollette' nelle 2 nuove ('abbonamenti' + 'casa-fisse')
+function migrateCategories() {
+  // Step 1: vecchia 'bollette' -> 'abbonamenti' o 'casa-gas'
+  // Step 2: vecchia 'casa-fisse' -> 'casa-gas'
   let touched = false;
   const movs = loadMovements();
   for (const m of movs) {
     if (m.category === 'bollette') {
       const txt = ((m.note || '') + ' ' + (m.name || '')).toLowerCase();
-      m.category = txt.includes('bombola') || txt.includes('gas') ? 'casa-fisse' : 'abbonamenti';
+      m.category = txt.includes('bombola') || txt.includes('gas') ? 'casa-gas' : 'abbonamenti';
+      touched = true;
+    } else if (m.category === 'casa-fisse') {
+      m.category = 'casa-gas';
       touched = true;
     }
   }
@@ -254,19 +264,35 @@ function migrateBolletteSplit() {
   for (const r of recs) {
     if (r.category === 'bollette') {
       const n = (r.name || '').toLowerCase();
-      r.category = n.includes('bombola') || n.includes('gas') ? 'casa-fisse' : 'abbonamenti';
+      r.category = n.includes('bombola') || n.includes('gas') ? 'casa-gas' : 'abbonamenti';
+      touchedR = true;
+    } else if (r.category === 'casa-fisse') {
+      r.category = 'casa-gas';
       touchedR = true;
     }
   }
+  // Aggiungi nuovi ricorrenti default se mancano (per utenti esistenti)
+  const hasPulizia = recs.some(r => r.category === 'casa-pulizia');
+  const hasBarbiere = recs.some(r => r.category === 'cura-personale');
+  if (!hasPulizia) {
+    recs.push({ id: uuid(), name: 'Pulizia signora', amount: 64, category: 'casa-pulizia', dayOfMonth: 1, active: true, lastGeneratedMonth: null });
+    touchedR = true;
+  }
+  if (!hasBarbiere) {
+    recs.push({ id: uuid(), name: 'Barbiere', amount: 30, category: 'cura-personale', dayOfMonth: 1, active: true, lastGeneratedMonth: null });
+    touchedR = true;
+  }
+
   if (touchedR) lsWrite('recurring', recs);
 
   const caps = loadCaps();
-  if ('bollette' in caps) {
-    delete caps.bollette;
-    if (!('abbonamenti' in caps)) caps.abbonamenti = 0;
-    if (!('casa-fisse' in caps)) caps['casa-fisse'] = 0;
-    lsWrite('caps', caps);
+  let touchedC = false;
+  if ('bollette' in caps) { delete caps.bollette; touchedC = true; }
+  if ('casa-fisse' in caps) { delete caps['casa-fisse']; touchedC = true; }
+  for (const id of ['abbonamenti', 'casa-gas', 'casa-pulizia', 'cura-personale']) {
+    if (!(id in caps)) { caps[id] = 0; touchedC = true; }
   }
+  if (touchedC) lsWrite('caps', caps);
 }
 
 function filterMovementsByMonth(month) {
@@ -508,7 +534,7 @@ function renderMonth() {
 
   // Spese fisse mensili
   const fixedBox = document.getElementById('fixed-box');
-  const fixedDetails = CATEGORIES.filter(c => c.fixed)
+  const fixedDetails = CATEGORIES.filter(c => c.fixed && !c.hidden)
     .map(c => ({ c: c, amount: totals[c.id] || 0 }))
     .filter(x => x.amount > 0);
   if (fixedDetails.length > 0) {
@@ -531,8 +557,8 @@ function renderMonth() {
   document.getElementById('kpi-tetto').textContent = totBudget > 0 ? fmtEUR(totBudget) + ' €' : '—';
   document.getElementById('kpi-oggi').textContent = fmtEUR(totalToday) + ' €';
 
-  // Categories list: solo variabili
-  const variableCats = CATEGORIES.filter(c => !c.fixed);
+  // Categories list: solo variabili visibili
+  const variableCats = CATEGORIES.filter(c => !c.fixed && !c.hidden);
   document.getElementById('categories-list').innerHTML = variableCats.map(c => {
     const speso = totals[c.id];
     const cap = cachedCaps[c.id] || 0;
@@ -685,7 +711,7 @@ function renderRecurring() {
 // ============================================================
 function renderCaps() {
   const c = document.getElementById('caps-list');
-  c.innerHTML = CATEGORIES.filter(cat => !cat.fixed).map(cat =>
+  c.innerHTML = CATEGORIES.filter(cat => !cat.fixed && !cat.hidden).map(cat =>
     '<div class="cap-row">' +
     '<span class="cap-dot" style="background:' + cat.color + '"></span>' +
     '<label class="cap-label">' + cat.name + '</label>' +
@@ -777,7 +803,8 @@ function bindNav() {
 }
 
 function populateCategoryDropdowns() {
-  const options = CATEGORIES.map(c => '<option value="' + c.id + '">' + c.name + '</option>').join('');
+  const visible = CATEGORIES.filter(c => !c.hidden);
+  const options = visible.map(c => '<option value="' + c.id + '">' + c.name + '</option>').join('');
   ['add-category', 'rec-category'].forEach(id => {
     document.getElementById(id).innerHTML = '<option value="">Seleziona...</option>' + options;
   });
@@ -832,7 +859,7 @@ function bindLogout() {
 async function startApp() {
   showApp();
   await initialSync();
-  migrateBolletteSplit();
+  migrateCategories();
   cachedRecurring = loadRecurring();
   ensureRecurringForMonth();
   cachedRecurring = loadRecurring();
