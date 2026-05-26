@@ -164,6 +164,57 @@
       </div>
     </div>
 
+    <!-- MODAL: Modifica spesa ricorrente -->
+    <div id="edit-recurring-modal" class="modal hidden">
+      <div class="modal-content">
+        <h2>Modifica spesa ricorrente</h2>
+        <form id="edit-rec-form" class="add-form-modal">
+          <label><span>Nome</span>
+            <input type="text" id="edit-rec-name" required maxlength="50" />
+          </label>
+          <label><span>Importo (&euro;/mese)</span>
+            <input type="number" step="0.01" min="0" id="edit-rec-amount" required inputmode="decimal" />
+          </label>
+          <label><span>Categoria</span>
+            <select id="edit-rec-category" required>
+              <option value="">Seleziona...</option>
+            </select>
+          </label>
+          <label><span>Giorno del mese (1-28)</span>
+            <input type="number" min="1" max="28" id="edit-rec-day" required />
+          </label>
+          <div class="form-buttons">
+            <button type="submit" class="btn-primary">Salva modifiche</button>
+            <button type="button" id="delete-edit-rec" class="btn-secondary btn-danger-text">Elimina</button>
+            <button type="button" id="cancel-edit-rec" class="btn-secondary">Annulla</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- MODAL: Modifica entrata -->
+    <div id="edit-income-modal" class="modal hidden">
+      <div class="modal-content">
+        <h2>Modifica entrata</h2>
+        <form id="edit-inc-form" class="add-form-modal">
+          <label><span>Nome</span>
+            <input type="text" id="edit-inc-name-input" required maxlength="50" />
+          </label>
+          <label><span>Importo (&euro;/mese)</span>
+            <input type="number" step="0.01" min="0" id="edit-inc-amount-input" required inputmode="decimal" />
+          </label>
+          <label><span>Nota (opzionale)</span>
+            <input type="text" id="edit-inc-note-input" maxlength="80" />
+          </label>
+          <div class="form-buttons">
+            <button type="submit" class="btn-primary">Salva modifiche</button>
+            <button type="button" id="delete-edit-inc" class="btn-secondary btn-danger-text">Elimina</button>
+            <button type="button" id="cancel-edit-inc" class="btn-secondary">Annulla</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
     <!-- MODAL: Split scontrino -->
     <div id="split-modal" class="modal hidden">
       <div class="modal-content">

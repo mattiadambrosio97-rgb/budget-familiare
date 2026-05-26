@@ -321,6 +321,14 @@ select { appearance: none; -webkit-appearance: none; background-image: url("data
 
 .income-total { background: #fef3c7 !important; color: #92400e !important; }
 
+.sink-item-clickable { cursor: pointer; transition: background 0.15s; }
+.sink-item-clickable:hover { background: var(--bg-3); }
+.btn-danger-text { color: var(--danger); border-color: var(--danger); }
+.btn-danger-text:hover { background: var(--danger); color: white; }
+.recurring-item[data-id] { cursor: pointer; }
+.recurring-item[data-id]:hover { background: var(--bg-3); }
+.recurring-item .recurring-actions button { cursor: pointer; }
+
 .month-header {
   display: flex;
   align-items: center;
@@ -552,17 +560,17 @@ select { appearance: none; -webkit-appearance: none; background-image: url("data
 .fab {
   position: fixed;
   bottom: calc(80px + var(--safe-bottom));
-  right: 20px;
-  width: 60px;
-  height: 60px;
+  right: 18px;
+  width: 50px;
+  height: 50px;
   background: var(--primary);
   color: white;
   border: none;
   border-radius: 50%;
-  font-size: 30px;
+  font-size: 24px;
   line-height: 1;
   font-weight: 300;
-  box-shadow: 0 6px 20px rgba(22,163,74,0.4), 0 2px 6px rgba(22,163,74,0.3);
+  box-shadow: 0 4px 14px rgba(22,163,74,0.35), 0 2px 4px rgba(22,163,74,0.25);
   z-index: 90;
   transition: transform 0.15s, box-shadow 0.15s;
   display: flex;

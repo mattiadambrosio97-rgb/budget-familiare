@@ -56,7 +56,7 @@ const DEFAULT_RECURRING = [
   { name: 'HBO Max', amount: 5.99, category: 'abbonamenti', dayOfMonth: 11 },
   { name: 'Canone conto Intesa', amount: 3.95, category: 'abbonamenti', dayOfMonth: 28 },
   { name: 'Bombola gas (media)', amount: 45, category: 'casa-gas', dayOfMonth: 15 },
-  { name: 'Pulizia signora', amount: 64, category: 'casa-pulizia', dayOfMonth: 1 },
+  { name: 'Signora delle pulizie', amount: 64, category: 'casa-pulizia', dayOfMonth: 1 },
   { name: 'Barbiere', amount: 30, category: 'cura-personale', dayOfMonth: 1 },
   { name: 'Mich cura di sé', amount: 60, category: 'cura-personale', dayOfMonth: 1 }
 ];
@@ -279,11 +279,19 @@ function migrateCategories() {
       touchedR = true;
     }
   }
+  // Rinomina vecchia "Pulizia signora" in "Signora delle pulizie"
+  for (const r of recs) {
+    if (r.name === 'Pulizia signora') {
+      r.name = 'Signora delle pulizie';
+      touchedR = true;
+    }
+  }
+
   // Aggiungi nuovi ricorrenti default se mancano (per utenti esistenti)
   const hasPulizia = recs.some(r => r.category === 'casa-pulizia');
   const hasBarbiere = recs.some(r => r.category === 'cura-personale');
   if (!hasPulizia) {
-    recs.push({ id: uuid(), name: 'Pulizia signora', amount: 64, category: 'casa-pulizia', dayOfMonth: 1, active: true, lastGeneratedMonth: null });
+    recs.push({ id: uuid(), name: 'Signora delle pulizie', amount: 64, category: 'casa-pulizia', dayOfMonth: 1, active: true, lastGeneratedMonth: null });
     touchedR = true;
   }
   if (!hasBarbiere) {
@@ -695,23 +703,75 @@ function bindRecurring() {
 
   document.getElementById('recurring-list').addEventListener('click', function (e) {
     const btn = e.target.closest('button');
-    if (!btn) return;
-    const id = btn.dataset.id;
-    const recs = loadRecurring();
-    const rec = recs.find(r => r.id === id);
-    if (!rec) return;
-    if (btn.dataset.action === 'toggle') {
-      rec.active = !rec.active;
-      saveRecurring(recs);
-      cachedRecurring = recs;
-      renderRecurring();
-    } else if (btn.dataset.action === 'delete') {
-      if (confirm('Eliminare "' + rec.name + '"? I movimenti gia generati restano.')) {
-        const filtered = recs.filter(r => r.id !== id);
-        saveRecurring(filtered);
-        cachedRecurring = filtered;
+    if (btn) {
+      const id = btn.dataset.id;
+      const recs = loadRecurring();
+      const rec = recs.find(r => r.id === id);
+      if (!rec) return;
+      if (btn.dataset.action === 'toggle') {
+        rec.active = !rec.active;
+        saveRecurring(recs);
+        cachedRecurring = recs;
         renderRecurring();
+      } else if (btn.dataset.action === 'edit') {
+        openEditRecurring(id);
       }
+      return;
+    }
+    // Click sulla riga (non sui bottoni) apre edit
+    const item = e.target.closest('.recurring-item');
+    if (item && item.dataset.id) {
+      openEditRecurring(item.dataset.id);
+    }
+  });
+}
+
+let editingRecurringId = null;
+function openEditRecurring(id) {
+  const rec = cachedRecurring.find(r => r.id === id);
+  if (!rec) return;
+  editingRecurringId = id;
+  document.getElementById('edit-rec-name').value = rec.name;
+  document.getElementById('edit-rec-amount').value = rec.amount;
+  document.getElementById('edit-rec-category').value = rec.category;
+  document.getElementById('edit-rec-day').value = rec.dayOfMonth;
+  document.getElementById('edit-recurring-modal').classList.remove('hidden');
+}
+function closeEditRecurring() {
+  editingRecurringId = null;
+  document.getElementById('edit-recurring-modal').classList.add('hidden');
+}
+function bindEditRecurring() {
+  document.getElementById('edit-rec-form').addEventListener('submit', function (e) {
+    e.preventDefault();
+    if (!editingRecurringId) return;
+    const recs = loadRecurring();
+    const rec = recs.find(r => r.id === editingRecurringId);
+    if (!rec) return;
+    rec.name = document.getElementById('edit-rec-name').value.trim() || rec.name;
+    rec.amount = parseFloat(document.getElementById('edit-rec-amount').value) || rec.amount;
+    rec.category = document.getElementById('edit-rec-category').value || rec.category;
+    rec.dayOfMonth = parseInt(document.getElementById('edit-rec-day').value) || rec.dayOfMonth;
+    saveRecurring(recs);
+    cachedRecurring = recs;
+    closeEditRecurring();
+    renderRecurring();
+    renderMonth();
+    showToast('Ricorrente aggiornata');
+  });
+  document.getElementById('cancel-edit-rec').addEventListener('click', closeEditRecurring);
+  document.getElementById('delete-edit-rec').addEventListener('click', function () {
+    if (!editingRecurringId) return;
+    const rec = cachedRecurring.find(r => r.id === editingRecurringId);
+    if (!rec) return;
+    if (confirm('Eliminare "' + rec.name + '"? I movimenti gia generati restano nei movimenti.')) {
+      const filtered = loadRecurring().filter(r => r.id !== editingRecurringId);
+      saveRecurring(filtered);
+      cachedRecurring = filtered;
+      closeEditRecurring();
+      renderRecurring();
+      renderMonth();
+      showToast('Ricorrente eliminata');
     }
   });
 }
@@ -725,7 +785,7 @@ function renderRecurring() {
   const sorted = cachedRecurring.slice().sort((a, b) => (a.dayOfMonth || 0) - (b.dayOfMonth || 0));
   list.innerHTML = sorted.map(rec => {
     const cat = getCategory(rec.category);
-    return '<div class="recurring-item ' + (rec.active ? '' : 'inactive') + '">' +
+    return '<div class="recurring-item ' + (rec.active ? '' : 'inactive') + '" data-id="' + rec.id + '">' +
       '<div class="recurring-info">' +
       '<div class="recurring-name">' + escapeHtml(rec.name) + '</div>' +
       '<div class="recurring-meta">' +
@@ -735,8 +795,8 @@ function renderRecurring() {
       '</div>' +
       '<div class="recurring-amount">' + fmtEUR(rec.amount) + ' €</div>' +
       '<div class="recurring-actions">' +
+      '<button data-action="edit" data-id="' + rec.id + '" class="btn-small">Modifica</button>' +
       '<button data-action="toggle" data-id="' + rec.id + '" class="btn-small">' + (rec.active ? 'Disattiva' : 'Attiva') + '</button>' +
-      '<button data-action="delete" data-id="' + rec.id + '" class="btn-small btn-danger">Elimina</button>' +
       '</div>' +
       '</div>';
   }).join('');
@@ -804,13 +864,13 @@ function renderIncome() {
   const totale = cachedIncome.reduce((a, s) => a + (s.amount || 0), 0);
   c.innerHTML = '<div class="sink-total income-total">Totale entrate stimate: <strong>' + fmtEUR(totale) + ' &euro;/mese</strong></div>' +
     cachedIncome.map(s =>
-      '<div class="sink-item">' +
+      '<div class="sink-item sink-item-clickable" data-id="' + s.id + '">' +
       '<div class="sink-info">' +
       '<div class="sink-name">' + escapeHtml(s.name) + '</div>' +
       (s.note ? '<div class="sink-note">' + escapeHtml(s.note) + '</div>' : '') +
       '</div>' +
       '<div class="sink-amount">' + fmtEUR(s.amount) + ' &euro;</div>' +
-      '<button class="btn-small btn-danger" data-action="del-income" data-id="' + s.id + '" aria-label="Elimina">&times;</button>' +
+      '<button class="btn-small" data-action="edit-income" data-id="' + s.id + '">Modifica</button>' +
       '</div>'
     ).join('');
 }
@@ -831,15 +891,56 @@ function bindIncome() {
   });
 
   document.getElementById('income-list').addEventListener('click', function (e) {
-    const btn = e.target.closest('[data-action="del-income"]');
-    if (!btn) return;
-    const id = btn.dataset.id;
-    const it = cachedIncome.find(s => s.id === id);
-    if (it && confirm('Eliminare "' + it.name + '"?')) {
-      cachedIncome = cachedIncome.filter(s => s.id !== id);
+    const editBtn = e.target.closest('[data-action="edit-income"]');
+    if (editBtn) { openEditIncome(editBtn.dataset.id); return; }
+    const item = e.target.closest('.sink-item-clickable');
+    if (item && item.dataset.id) {
+      openEditIncome(item.dataset.id);
+    }
+  });
+}
+
+let editingIncomeId = null;
+function openEditIncome(id) {
+  const inc = cachedIncome.find(s => s.id === id);
+  if (!inc) return;
+  editingIncomeId = id;
+  document.getElementById('edit-inc-name-input').value = inc.name;
+  document.getElementById('edit-inc-amount-input').value = inc.amount;
+  document.getElementById('edit-inc-note-input').value = inc.note || '';
+  document.getElementById('edit-income-modal').classList.remove('hidden');
+}
+function closeEditIncome() {
+  editingIncomeId = null;
+  document.getElementById('edit-income-modal').classList.add('hidden');
+}
+function bindEditIncome() {
+  document.getElementById('edit-inc-form').addEventListener('submit', function (e) {
+    e.preventDefault();
+    if (!editingIncomeId) return;
+    const inc = cachedIncome.find(s => s.id === editingIncomeId);
+    if (!inc) return;
+    inc.name = document.getElementById('edit-inc-name-input').value.trim() || inc.name;
+    inc.amount = parseFloat(document.getElementById('edit-inc-amount-input').value) || inc.amount;
+    inc.note = document.getElementById('edit-inc-note-input').value.trim();
+    saveIncome(cachedIncome);
+    closeEditIncome();
+    renderIncome();
+    renderMonth();
+    showToast('Entrata aggiornata');
+  });
+  document.getElementById('cancel-edit-inc').addEventListener('click', closeEditIncome);
+  document.getElementById('delete-edit-inc').addEventListener('click', function () {
+    if (!editingIncomeId) return;
+    const inc = cachedIncome.find(s => s.id === editingIncomeId);
+    if (!inc) return;
+    if (confirm('Eliminare "' + inc.name + '"?')) {
+      cachedIncome = cachedIncome.filter(s => s.id !== editingIncomeId);
       saveIncome(cachedIncome);
+      closeEditIncome();
       renderIncome();
       renderMonth();
+      showToast('Entrata eliminata');
     }
   });
 }
@@ -890,8 +991,9 @@ function bindNav() {
 function populateCategoryDropdowns() {
   const visible = CATEGORIES.filter(c => !c.hidden);
   const options = visible.map(c => '<option value="' + c.id + '">' + c.name + '</option>').join('');
-  ['add-category', 'rec-category'].forEach(id => {
-    document.getElementById(id).innerHTML = '<option value="">Seleziona...</option>' + options;
+  ['add-category', 'rec-category', 'edit-rec-category'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.innerHTML = '<option value="">Seleziona...</option>' + options;
   });
   document.getElementById('movements-category-filter').innerHTML =
     '<option value="">Tutte le categorie</option>' + options;
@@ -970,6 +1072,8 @@ function boot() {
   bindRecurring();
   bindBudget();
   bindIncome();
+  bindEditRecurring();
+  bindEditIncome();
   bindNav();
   bindPin();
   bindLogout();
