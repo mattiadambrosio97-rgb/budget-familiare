@@ -254,7 +254,11 @@ function showToast(msg, isError) {
   setTimeout(() => t.classList.remove('toast-visible'), 2500);
 }
 
+const MIGRATION_VERSION = 'v3-2026-06-01';
 function migrateCategories() {
+  // Idempotenza: gira una volta sola per versione. Evita di cancellare entita future
+  // che matcherebbero pattern legacy (es. un futuro sinking con parola "palestra").
+  if (localStorage.getItem(STORAGE_PREFIX + '_migration') === MIGRATION_VERSION) return;
   // Step 1: vecchia 'bollette' -> 'abbonamenti' o 'casa-gas'
   // Step 2: vecchia 'casa-fisse' -> 'casa-gas'
   let touched = false;
@@ -338,6 +342,7 @@ function migrateCategories() {
     touchedS = true;
   }
   if (touchedS) { lsWrite('sinking', sinksFiltered); schedulePush(); }
+  localStorage.setItem(STORAGE_PREFIX + '_migration', MIGRATION_VERSION);
 }
 
 function filterMovementsByMonth(month) {
@@ -799,10 +804,12 @@ function bindEditRecurring() {
     const recs = loadRecurring();
     const rec = recs.find(r => r.id === editingRecurringId);
     if (!rec) return;
+    const newAmount = parseFloat(document.getElementById('edit-rec-amount').value);
+    const newDay = parseInt(document.getElementById('edit-rec-day').value);
     rec.name = document.getElementById('edit-rec-name').value.trim() || rec.name;
-    rec.amount = parseFloat(document.getElementById('edit-rec-amount').value) || rec.amount;
+    rec.amount = isNaN(newAmount) ? rec.amount : newAmount;
     rec.category = document.getElementById('edit-rec-category').value || rec.category;
-    rec.dayOfMonth = parseInt(document.getElementById('edit-rec-day').value) || rec.dayOfMonth;
+    rec.dayOfMonth = isNaN(newDay) ? rec.dayOfMonth : newDay;
     saveRecurring(recs);
     cachedRecurring = recs;
     closeEditRecurring();
@@ -971,8 +978,9 @@ function bindEditIncome() {
     if (!editingIncomeId) return;
     const inc = cachedIncome.find(s => s.id === editingIncomeId);
     if (!inc) return;
+    const newIncAmount = parseFloat(document.getElementById('edit-inc-amount-input').value);
     inc.name = document.getElementById('edit-inc-name-input').value.trim() || inc.name;
-    inc.amount = parseFloat(document.getElementById('edit-inc-amount-input').value) || inc.amount;
+    inc.amount = isNaN(newIncAmount) ? inc.amount : newIncAmount;
     inc.note = document.getElementById('edit-inc-note-input').value.trim();
     saveIncome(cachedIncome);
     closeEditIncome();
