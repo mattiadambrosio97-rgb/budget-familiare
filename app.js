@@ -141,14 +141,30 @@ function buildPayload() {
   return payload;
 }
 
+// Unisce due liste di oggetti con campo `id`: remote vince per stesso id, voci
+// presenti solo in local (es. spese appena salvate e non ancora pushate) sono
+// preservate. Evita la perdita di movimenti per race condition di sync.
+function mergeById(local, remote) {
+  const byId = new Map();
+  for (const it of local || []) { if (it && it.id) byId.set(it.id, it); }
+  for (const it of remote || []) { if (it && it.id) byId.set(it.id, it); }
+  return Array.from(byId.values());
+}
+
 function applyRemotePayload(remote) {
   if (!remote || typeof remote !== 'object') return false;
   let applied = false;
+  const MERGE_KEYS = ['movements', 'recurring', 'sinking', 'income'];
   for (const k of SYNC_KEYS) {
     if (remote[k]) {
       try {
         const parsed = JSON.parse(remote[k]);
-        lsWrite(k, parsed);
+        if (MERGE_KEYS.includes(k) && Array.isArray(parsed)) {
+          const local = lsRead(k, []);
+          lsWrite(k, mergeById(local, parsed));
+        } else {
+          lsWrite(k, parsed);
+        }
         applied = true;
       } catch (e) {}
     }
@@ -176,7 +192,7 @@ let pushTimer = null;
 function schedulePush() {
   if (!syncEnabled) return;
   clearTimeout(pushTimer);
-  pushTimer = setTimeout(fbPush, 800);
+  pushTimer = setTimeout(fbPush, 200);
 }
 
 async function fbPush() {
@@ -200,17 +216,49 @@ async function fbPush() {
   }
 }
 
+// Flush sincrono via fetch keepalive: garantisce che il push completi anche se
+// la pagina viene chiusa, messa in background o cambio scheda subito dopo un save.
+// keepalive ha limite 64KB per richiesta (sufficiente per il nostro payload).
+function flushPushSync() {
+  if (!syncEnabled) return;
+  if (pushTimer) { clearTimeout(pushTimer); pushTimer = null; }
+  try {
+    const payload = JSON.stringify(buildPayload());
+    fetch(FB_URL, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: payload,
+      keepalive: true
+    }).catch(() => {});
+  } catch (e) {}
+}
+
 async function initialSync() {
   const remote = await fbPull();
   const localTs = parseInt(localStorage.getItem(STORAGE_PREFIX + '_ts') || '0', 10);
   if (remote && remote._ts && remote._ts > localTs) {
     const applied = applyRemotePayload(remote);
     if (applied) {
-      localStorage.setItem(STORAGE_PREFIX + '_ts', String(remote._ts));
+      // Dopo il merge, _ts a max per non rifare apply ad ogni avvio.
+      localStorage.setItem(STORAGE_PREFIX + '_ts', String(Math.max(localTs, remote._ts)));
+      // Forziamo push per propagare lo stato fuso: protegge le spese locali
+      // appena unite, che altrimenti vivrebbero solo sul dispositivo.
+      schedulePush();
     }
   } else if (localTs > 0) {
     schedulePush();
   }
+}
+
+function bindUnloadFlush() {
+  // Quando l'app va in background o si chiude, forza il flush del push pendente.
+  // Indispensabile su mobile: cambio scheda / app in background / chiusura tab
+  // possono interrompere un setTimeout in volo. keepalive garantisce arrivo.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') flushPushSync();
+  });
+  window.addEventListener('pagehide', flushPushSync);
+  window.addEventListener('beforeunload', flushPushSync);
 }
 
 // ============================================================
@@ -1162,6 +1210,7 @@ function boot() {
   bindNav();
   bindPin();
   bindLogout();
+  bindUnloadFlush();
 
   if (sessionStorage.getItem('bf_unlocked') === '1') {
     startApp();
