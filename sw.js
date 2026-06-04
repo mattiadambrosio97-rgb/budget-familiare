@@ -1,6 +1,6 @@
 // Service Worker: network-first per i file dell'app, fallback cache se offline.
 // Path relativi per funzionare sia su root che su sotto-cartelle (GitHub Pages).
-const CACHE_NAME = 'budget-v4';
+const CACHE_NAME = 'budget-v5';
 const ASSETS = ['./', './index.html', './app.js', './styles.css', './manifest.json', './icon.svg'];
 
 self.addEventListener('install', e => {

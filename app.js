@@ -87,12 +87,24 @@ function lsRead(key, fallback) {
   } catch (e) { return fallback; }
 }
 function lsWrite(key, value) {
-  localStorage.setItem(STORAGE_PREFIX + key, JSON.stringify(value));
-  localStorage.setItem(STORAGE_PREFIX + '_ts', String(Date.now()));
+  // Ritorna true se la scrittura va a buon fine, false altrimenti (quota piena, browser strano).
+  // Il chiamante puo mostrare un errore all'utente.
+  try {
+    localStorage.setItem(STORAGE_PREFIX + key, JSON.stringify(value));
+    localStorage.setItem(STORAGE_PREFIX + '_ts', String(Date.now()));
+    return true;
+  } catch (e) {
+    console.error('lsWrite fallito per chiave', key, e);
+    return false;
+  }
 }
 
 function loadMovements() { return lsRead('movements', []); }
-function saveMovements(arr) { lsWrite('movements', arr); schedulePush(); }
+function saveMovements(arr) {
+  const ok = lsWrite('movements', arr);
+  if (ok) schedulePush();
+  return ok;
+}
 function loadRecurring() {
   let arr = lsRead('recurring', null);
   if (arr === null) {
@@ -109,13 +121,13 @@ function loadRecurring() {
   }
   return arr;
 }
-function saveRecurring(arr) { lsWrite('recurring', arr); schedulePush(); }
+function saveRecurring(arr) { const ok = lsWrite('recurring', arr); if (ok) schedulePush(); return ok; }
 function loadCaps() { return lsRead('caps', { ...DEFAULT_CAPS }); }
-function saveCaps(obj) { lsWrite('caps', obj); schedulePush(); }
+function saveCaps(obj) { const ok = lsWrite('caps', obj); if (ok) schedulePush(); return ok; }
 function loadSinking() { return lsRead('sinking', [...DEFAULT_SINKING]); }
-function saveSinking(arr) { lsWrite('sinking', arr); schedulePush(); }
+function saveSinking(arr) { const ok = lsWrite('sinking', arr); if (ok) schedulePush(); return ok; }
 function loadIncome() { return lsRead('income', [...DEFAULT_INCOME]); }
-function saveIncome(arr) { lsWrite('income', arr); schedulePush(); }
+function saveIncome(arr) { const ok = lsWrite('income', arr); if (ok) schedulePush(); return ok; }
 
 // ============================================================
 // FIREBASE SYNC (Realtime DB via REST)
@@ -141,14 +153,50 @@ function buildPayload() {
   return payload;
 }
 
-// Unisce due liste di oggetti con campo `id`: remote vince per stesso id, voci
-// presenti solo in local (es. spese appena salvate e non ancora pushate) sono
-// preservate. Evita la perdita di movimenti per race condition di sync.
+// Unisce due liste di oggetti con campo `id`.
+// Per stesso id: vince la voce con `_modTs` (timestamp di ultima modifica) piu' recente.
+// Le voci presenti solo in una delle due liste vengono preservate.
+// Le voci con `_deleted: true` sono tombstones: rappresentano cancellazioni
+// e si propagano correttamente cosi' una cancellazione fatta su un device
+// non viene annullata dal merge con un'altra copia che ancora aveva quella voce.
 function mergeById(local, remote) {
   const byId = new Map();
-  for (const it of local || []) { if (it && it.id) byId.set(it.id, it); }
-  for (const it of remote || []) { if (it && it.id) byId.set(it.id, it); }
+  const considerAll = [...(local || []), ...(remote || [])];
+  for (const it of considerAll) {
+    if (!it || !it.id) continue;
+    const existing = byId.get(it.id);
+    if (!existing) { byId.set(it.id, it); continue; }
+    const existingTs = existing._modTs || 0;
+    const newTs = it._modTs || 0;
+    if (newTs > existingTs) byId.set(it.id, it);
+    else if (newTs === existingTs) {
+      // Parita di timestamp: se uno e' tombstone vince la cancellazione (sicuro).
+      if (it._deleted && !existing._deleted) byId.set(it.id, it);
+    }
+  }
   return Array.from(byId.values());
+}
+
+// Filtra le entry attive (esclude i tombstones): da usare nella UI e nei calcoli.
+function activeOnly(arr) {
+  return (arr || []).filter(it => it && !it._deleted);
+}
+
+// Pulizia periodica dei tombstones piu' vecchi di 60 giorni.
+// Serve a non far crescere indefinitamente lo storage e Firebase.
+function purgeOldTombstones() {
+  const cutoff = Date.now() - 60 * 24 * 60 * 60 * 1000;
+  let changed = false;
+  for (const k of ['movements', 'recurring', 'sinking', 'income']) {
+    const arr = lsRead(k, []);
+    if (!Array.isArray(arr)) continue;
+    const filtered = arr.filter(it => !(it && it._deleted && (it._modTs || 0) < cutoff));
+    if (filtered.length !== arr.length) {
+      lsWrite(k, filtered);
+      changed = true;
+    }
+  }
+  if (changed) schedulePush();
 }
 
 function applyRemotePayload(remote) {
@@ -189,6 +237,7 @@ async function fbPull() {
 }
 
 let pushTimer = null;
+let needRepush = false;
 function schedulePush() {
   if (!syncEnabled) return;
   clearTimeout(pushTimer);
@@ -196,8 +245,17 @@ function schedulePush() {
 }
 
 async function fbPush() {
-  if (!syncEnabled || syncInProgress) return;
+  if (!syncEnabled) return;
+  if (syncInProgress) {
+    // Un push e' gia' in volo. Segnaliamo che servira' un altro giro per
+    // catturare le modifiche fatte nel frattempo. Senza questo flag, la
+    // seconda modifica resterebbe solo in locale finche' l'utente non
+    // riavvia l'app.
+    needRepush = true;
+    return;
+  }
   syncInProgress = true;
+  needRepush = false;
   setSyncStatus('Salvataggio...');
   try {
     const payload = buildPayload();
@@ -211,8 +269,14 @@ async function fbPush() {
   } catch (e) {
     setSyncStatus('Errore salvataggio', true);
     console.warn('Push failed:', e);
+    // Retry automatico fra 3 secondi se errore di rete.
+    setTimeout(schedulePush, 3000);
   } finally {
     syncInProgress = false;
+    if (needRepush) {
+      needRepush = false;
+      schedulePush();
+    }
   }
 }
 
@@ -396,7 +460,7 @@ function migrateCategories() {
 function filterMovementsByMonth(month) {
   const start = +new Date(month);
   const end = +new Date(new Date(month).setMonth(month.getMonth() + 1));
-  return loadMovements()
+  return activeOnly(loadMovements())
     .filter(m => { const t = +new Date(m.date); return t >= start && t < end; })
     .sort((a, b) => +new Date(b.date) - +new Date(a.date));
 }
@@ -409,10 +473,31 @@ function ensureRecurringForMonth() {
   const mk = monthKey(now);
   const recs = loadRecurring();
   const movs = loadMovements();
+  const nowTs = Date.now();
+  // Costruisce un set degli recurringId gia' presenti nei movimenti del mese
+  // corrente, considerando anche i tombstones (per non rigenerare voci cancellate
+  // dall'utente). Difesa supplementare contro la duplicazione su nuovo dispositivo.
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+  const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1).getTime();
+  const alreadyHas = new Set();
+  for (const m of movs) {
+    if (!m || !m.recurringId) continue;
+    const t = +new Date(m.date);
+    if (t >= monthStart && t < monthEnd) alreadyHas.add(m.recurringId);
+  }
   let touched = false;
   for (const rec of recs) {
+    if (!rec || rec._deleted) continue;
     if (!rec.active) continue;
     if (rec.lastGeneratedMonth === mk) continue;
+    if (alreadyHas.has(rec.id)) {
+      // Difesa: il movimento esiste gia' (es. generato da altro dispositivo).
+      // Aggiorniamo solo il flag e non aggiungiamo.
+      rec.lastGeneratedMonth = mk;
+      rec._modTs = nowTs;
+      touched = true;
+      continue;
+    }
     const day = Math.min(Math.max(parseInt(rec.dayOfMonth) || 1, 1), 28);
     const movDate = new Date(now.getFullYear(), now.getMonth(), day, 12, 0, 0);
     movs.push({
@@ -422,9 +507,11 @@ function ensureRecurringForMonth() {
       category: rec.category,
       note: rec.name + ' (ricorrente)',
       isRecurring: true,
-      recurringId: rec.id
+      recurringId: rec.id,
+      _modTs: nowTs
     });
     rec.lastGeneratedMonth = mk;
+    rec._modTs = nowTs;
     touched = true;
   }
   if (touched) { saveMovements(movs); saveRecurring(recs); }
@@ -462,9 +549,14 @@ function bindAdd() {
       amount: amount,
       category: category,
       note: note,
-      isRecurring: false
+      isRecurring: false,
+      _modTs: Date.now()
     });
-    saveMovements(movs);
+    const ok = saveMovements(movs);
+    if (!ok) {
+      showToast('Errore: spesa NON salvata. Riprova.', true);
+      return;
+    }
     closeAddModal();
     cachedMovements = filterMovementsByMonth(currentMonth);
     renderMonth();
@@ -533,6 +625,7 @@ function bindSplit() {
     if (data.length === 0) { alert('Aggiungi almeno una riga con importo e categoria.'); return; }
     const splitGroupId = uuid();
     const movs = loadMovements();
+    const nowTs = Date.now();
     for (const row of data) {
       movs.push({
         id: uuid(),
@@ -541,10 +634,15 @@ function bindSplit() {
         category: row.category,
         note: note ? note + ' (split)' : 'split',
         isRecurring: false,
-        splitGroupId: splitGroupId
+        splitGroupId: splitGroupId,
+        _modTs: nowTs
       });
     }
-    saveMovements(movs);
+    const ok = saveMovements(movs);
+    if (!ok) {
+      showToast('Errore: split NON salvato. Riprova.', true);
+      return;
+    }
     splitModal.classList.add('hidden');
     closeAddModal();
     cachedMovements = filterMovementsByMonth(currentMonth);
@@ -775,8 +873,11 @@ function bindMovements() {
     const mov = cachedMovements.find(m => m.id === id);
     if (!mov) return;
     if (confirm('Eliminare il movimento da ' + fmtEUR(mov.amount) + ' €?')) {
-      const all = loadMovements().filter(m => m.id !== id);
-      saveMovements(all);
+      // Tombstone invece di rimozione: cosi' la cancellazione si propaga ai
+      // dispositivi che avevano ancora la voce in locale, e non viene "resuscitata".
+      const all = loadMovements().map(m => m.id === id ? { ...m, _deleted: true, _modTs: Date.now() } : m);
+      const ok = saveMovements(all);
+      if (!ok) { showToast('Errore: NON eliminato. Riprova.', true); return; }
       cachedMovements = cachedMovements.filter(m => m.id !== id);
       renderMonth(); renderMovements();
       showToast('Eliminato');
@@ -796,9 +897,10 @@ function bindRecurring() {
     const day = parseInt(document.getElementById('rec-day').value);
     if (!name || !amount || !category || !day) return;
     const recs = loadRecurring();
-    const item = { id: uuid(), name: name, amount: amount, category: category, dayOfMonth: day, active: true, lastGeneratedMonth: null };
+    const item = { id: uuid(), name: name, amount: amount, category: category, dayOfMonth: day, active: true, lastGeneratedMonth: null, _modTs: Date.now() };
     recs.push(item);
-    saveRecurring(recs);
+    const ok = saveRecurring(recs);
+    if (!ok) { showToast('Errore: ricorrente NON salvata.', true); return; }
     cachedRecurring = recs;
     e.target.reset();
     renderRecurring();
@@ -814,6 +916,7 @@ function bindRecurring() {
       if (!rec) return;
       if (btn.dataset.action === 'toggle') {
         rec.active = !rec.active;
+        rec._modTs = Date.now();
         saveRecurring(recs);
         cachedRecurring = recs;
         renderRecurring();
@@ -858,7 +961,9 @@ function bindEditRecurring() {
     rec.amount = isNaN(newAmount) ? rec.amount : newAmount;
     rec.category = document.getElementById('edit-rec-category').value || rec.category;
     rec.dayOfMonth = isNaN(newDay) ? rec.dayOfMonth : newDay;
-    saveRecurring(recs);
+    rec._modTs = Date.now();
+    const ok = saveRecurring(recs);
+    if (!ok) { showToast('Errore: modifica NON salvata.', true); return; }
     cachedRecurring = recs;
     closeEditRecurring();
     renderRecurring();
@@ -871,9 +976,11 @@ function bindEditRecurring() {
     const rec = cachedRecurring.find(r => r.id === editingRecurringId);
     if (!rec) return;
     if (confirm('Eliminare "' + rec.name + '"? I movimenti gia generati restano nei movimenti.')) {
-      const filtered = loadRecurring().filter(r => r.id !== editingRecurringId);
-      saveRecurring(filtered);
-      cachedRecurring = filtered;
+      // Tombstone per propagare la cancellazione.
+      const all = loadRecurring().map(r => r.id === editingRecurringId ? { ...r, _deleted: true, _modTs: Date.now() } : r);
+      const ok = saveRecurring(all);
+      if (!ok) { showToast('Errore: NON eliminato.', true); return; }
+      cachedRecurring = activeOnly(all);
       closeEditRecurring();
       renderRecurring();
       renderMonth();
@@ -941,8 +1048,9 @@ function bindBudget() {
     const amount = parseFloat(document.getElementById('sink-amount').value);
     const note = document.getElementById('sink-note').value.trim();
     if (!name || !amount) return;
-    cachedSinking.push({ id: uuid(), name: name, amount: amount, note: note });
-    saveSinking(cachedSinking);
+    cachedSinking.push({ id: uuid(), name: name, amount: amount, note: note, _modTs: Date.now() });
+    const ok = saveSinking(cachedSinking);
+    if (!ok) { showToast('Errore: NON salvato.', true); return; }
     e.target.reset();
     renderSinking();
     showToast('Accantonamento aggiunto');
@@ -954,8 +1062,11 @@ function bindBudget() {
     const id = btn.dataset.id;
     const it = cachedSinking.find(s => s.id === id);
     if (it && confirm('Eliminare "' + it.name + '"?')) {
-      cachedSinking = cachedSinking.filter(s => s.id !== id);
-      saveSinking(cachedSinking);
+      // Tombstone su localStorage, cache rimuove solo l'attivo.
+      const all = loadSinking().map(s => s.id === id ? { ...s, _deleted: true, _modTs: Date.now() } : s);
+      const ok = saveSinking(all);
+      if (!ok) { showToast('Errore: NON eliminato.', true); return; }
+      cachedSinking = activeOnly(all);
       renderSinking();
     }
   });
@@ -988,8 +1099,9 @@ function bindIncome() {
     const amount = parseFloat(document.getElementById('inc-amount').value);
     const note = document.getElementById('inc-note').value.trim();
     if (!name || !amount) return;
-    cachedIncome.push({ id: uuid(), name: name, amount: amount, note: note });
-    saveIncome(cachedIncome);
+    cachedIncome.push({ id: uuid(), name: name, amount: amount, note: note, _modTs: Date.now() });
+    const ok = saveIncome(cachedIncome);
+    if (!ok) { showToast('Errore: NON salvato.', true); return; }
     e.target.reset();
     renderIncome();
     renderMonth();
@@ -1030,7 +1142,9 @@ function bindEditIncome() {
     inc.name = document.getElementById('edit-inc-name-input').value.trim() || inc.name;
     inc.amount = isNaN(newIncAmount) ? inc.amount : newIncAmount;
     inc.note = document.getElementById('edit-inc-note-input').value.trim();
-    saveIncome(cachedIncome);
+    inc._modTs = Date.now();
+    const ok = saveIncome(cachedIncome);
+    if (!ok) { showToast('Errore: modifica NON salvata.', true); return; }
     closeEditIncome();
     renderIncome();
     renderMonth();
@@ -1042,8 +1156,10 @@ function bindEditIncome() {
     const inc = cachedIncome.find(s => s.id === editingIncomeId);
     if (!inc) return;
     if (confirm('Eliminare "' + inc.name + '"?')) {
-      cachedIncome = cachedIncome.filter(s => s.id !== editingIncomeId);
-      saveIncome(cachedIncome);
+      const all = loadIncome().map(s => s.id === editingIncomeId ? { ...s, _deleted: true, _modTs: Date.now() } : s);
+      const ok = saveIncome(all);
+      if (!ok) { showToast('Errore: NON eliminato.', true); return; }
+      cachedIncome = activeOnly(all);
       closeEditIncome();
       renderIncome();
       renderMonth();
@@ -1154,13 +1270,14 @@ async function startApp() {
   showApp();
   await initialSync();
   migrateCategories();
-  cachedRecurring = loadRecurring();
+  purgeOldTombstones();
+  cachedRecurring = activeOnly(loadRecurring());
   ensureRecurringForMonth();
-  cachedRecurring = loadRecurring();
+  cachedRecurring = activeOnly(loadRecurring());
   cachedMovements = filterMovementsByMonth(currentMonth);
   cachedCaps = loadCaps();
-  cachedSinking = loadSinking();
-  cachedIncome = loadIncome();
+  cachedSinking = activeOnly(loadSinking());
+  cachedIncome = activeOnly(loadIncome());
   document.getElementById('add-date').value = todayISO();
   renderMonth();
   renderMovements();
