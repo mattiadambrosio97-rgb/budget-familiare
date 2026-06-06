@@ -1,6 +1,6 @@
 // Service Worker: network-first per i file dell'app, fallback cache se offline.
 // Path relativi per funzionare sia su root che su sotto-cartelle (GitHub Pages).
-const CACHE_NAME = 'budget-v5';
+const CACHE_NAME = 'budget-v7';
 const ASSETS = ['./', './index.html', './app.js', './styles.css', './manifest.json', './icon.svg'];
 
 self.addEventListener('install', e => {
@@ -25,6 +25,7 @@ self.addEventListener('fetch', e => {
   if (
     url.hostname.includes('googleapis.com') ||
     url.hostname.includes('firebaseio.com') ||
+    url.hostname.includes('firebasedatabase.app') ||
     url.hostname.includes('firebaseapp.com') ||
     url.hostname.includes('gstatic.com')
   ) return;

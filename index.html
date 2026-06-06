@@ -15,8 +15,28 @@
     <span id="sync-status">Sync...</span>
   </div>
 
+  <!-- Firebase login gate (una volta per dispositivo) -->
+  <section id="fb-login-screen" class="screen hidden">
+    <div class="login-container">
+      <div class="login-logo">&#128274;</div>
+      <h1>Accesso</h1>
+      <form id="fb-login-form">
+        <label>
+          <span>Email</span>
+          <input type="email" id="fb-email" required autocomplete="username" />
+        </label>
+        <label>
+          <span>Password</span>
+          <input type="password" id="fb-password" required autocomplete="current-password" />
+        </label>
+        <button type="submit" class="btn-primary">Accedi</button>
+        <p id="fb-login-error" class="error-msg"></p>
+      </form>
+    </div>
+  </section>
+
   <!-- PIN gate -->
-  <section id="pin-screen" class="screen">
+  <section id="pin-screen" class="screen hidden">
     <div class="login-container">
       <div class="login-logo">&euro;</div>
       <h1>Budget Familiare</h1>
@@ -257,6 +277,8 @@
     <div id="toast" class="toast"></div>
   </main>
 
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
   <script src="app.js"></script>
   <script>
     if ('serviceWorker' in navigator && location.protocol !== 'file:') {

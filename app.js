@@ -7,6 +7,29 @@ const STORAGE_PREFIX = 'bf_';
 const PIN = '020597';
 const FB_URL = 'https://agenda-f3298-default-rtdb.europe-west1.firebasedatabase.app/budget.json';
 const SYNC_KEYS = ['movements', 'recurring', 'caps', 'sinking', 'income'];
+
+// --- Firebase Auth (login una volta per dispositivo, sessione persistente) ---
+const FIREBASE_CONFIG = {
+  apiKey: 'AIzaSyAY9_Vj4qmoYtH335dKncpMIb9LSJwYMeg',
+  authDomain: 'agenda-f3298.firebaseapp.com',
+  databaseURL: 'https://agenda-f3298-default-rtdb.europe-west1.firebasedatabase.app',
+  projectId: 'agenda-f3298',
+  storageBucket: 'agenda-f3298.firebasestorage.app',
+  messagingSenderId: '1064348670898',
+  appId: '1:1064348670898:web:3c522b8d9db04dd348a2ab'
+};
+let idToken = null;
+
+// URL con token per le chiamate REST autenticate al Realtime Database.
+async function authedUrl() {
+  try {
+    const u = firebase.auth().currentUser;
+    if (u) idToken = await u.getIdToken();
+  } catch (e) {}
+  return FB_URL + (idToken ? '?auth=' + idToken : '');
+}
+// Versione sincrona (per flush su unload): usa l'ultimo token in cache.
+function authParamSync() { return idToken ? '?auth=' + idToken : ''; }
 let syncEnabled = true;
 let syncInProgress = false;
 
@@ -17,6 +40,7 @@ const CATEGORIES = [
   { id: 'sfizi', name: 'Sfizi e uscite', color: '#dc2626', fixed: false },
   { id: 'regali', name: 'Regali', color: '#db2777', fixed: false },
   { id: 'abbigliamento', name: 'Abbigliamento', color: '#7c3aed', fixed: false },
+  { id: 'palestra-vitamine', name: 'Palestra + Vitamine', color: '#f59e0b', fixed: false },
   { id: 'abbonamenti', name: 'Abbonamenti streaming/SaaS', color: '#2563eb', fixed: true },
   { id: 'casa-gas', name: 'Casa - bombola gas', color: '#0d9488', fixed: true },
   { id: 'casa-pulizia', name: 'Casa - pulizia signora', color: '#0891b2', fixed: true },
@@ -31,6 +55,7 @@ const DEFAULT_CAPS = {
   'sfizi': 300,
   'regali': 0,
   'abbigliamento': 0,
+  'palestra-vitamine': 0,
   'abbonamenti': 0,
   'casa-gas': 0,
   'casa-pulizia': 0,
@@ -224,7 +249,7 @@ async function fbPull() {
   if (!syncEnabled) return null;
   setSyncStatus('Sync in corso...');
   try {
-    const r = await fetch(FB_URL);
+    const r = await fetch(await authedUrl());
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const data = await r.json();
     setSyncStatus('Sincronizzato');
@@ -259,7 +284,7 @@ async function fbPush() {
   setSyncStatus('Salvataggio...');
   try {
     const payload = buildPayload();
-    const r = await fetch(FB_URL, {
+    const r = await fetch(await authedUrl(), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
@@ -288,7 +313,7 @@ function flushPushSync() {
   if (pushTimer) { clearTimeout(pushTimer); pushTimer = null; }
   try {
     const payload = JSON.stringify(buildPayload());
-    fetch(FB_URL, {
+    fetch(FB_URL + authParamSync(), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: payload,
@@ -366,7 +391,7 @@ function showToast(msg, isError) {
   setTimeout(() => t.classList.remove('toast-visible'), 2500);
 }
 
-const MIGRATION_VERSION = 'v3-2026-06-01';
+const MIGRATION_VERSION = 'v4-2026-06-04';
 function migrateCategories() {
   // Idempotenza: gira una volta sola per versione. Evita di cancellare entita future
   // che matcherebbero pattern legacy (es. un futuro sinking con parola "palestra").
@@ -430,7 +455,7 @@ function migrateCategories() {
   let touchedC = false;
   if ('bollette' in caps) { delete caps.bollette; touchedC = true; }
   if ('casa-fisse' in caps) { delete caps['casa-fisse']; touchedC = true; }
-  for (const id of ['abbonamenti', 'casa-gas', 'casa-pulizia', 'cura-personale', 'regali', 'abbigliamento']) {
+  for (const id of ['abbonamenti', 'casa-gas', 'casa-pulizia', 'cura-personale', 'regali', 'abbigliamento', 'palestra-vitamine']) {
     if (!(id in caps)) { caps[id] = 0; touchedC = true; }
   }
   if (touchedC) lsWrite('caps', caps);
@@ -1311,6 +1336,59 @@ function bindModalBackdrops() {
   }
 }
 
+// ============================================================
+// FIREBASE AUTH GATE
+// ============================================================
+function showFbLogin() {
+  document.getElementById('fb-login-screen').classList.remove('hidden');
+  document.getElementById('pin-screen').classList.add('hidden');
+  document.getElementById('app-container').classList.add('hidden');
+}
+
+function bindFbLogin() {
+  const form = document.getElementById('fb-login-form');
+  if (!form) return;
+  form.addEventListener('submit', async function (e) {
+    e.preventDefault();
+    const email = document.getElementById('fb-email').value.trim();
+    const pass = document.getElementById('fb-password').value;
+    const errEl = document.getElementById('fb-login-error');
+    errEl.textContent = 'Accesso in corso...';
+    try {
+      await firebase.auth().signInWithEmailAndPassword(email, pass);
+      errEl.textContent = '';
+      // onAuthStateChanged gestisce il passaggio al gate PIN.
+    } catch (err) {
+      errEl.textContent = 'Email o password errati';
+    }
+  });
+}
+
+function initFirebaseAuth(onReady) {
+  firebase.initializeApp(FIREBASE_CONFIG);
+  firebase.auth().setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(() => {});
+  firebase.auth().onIdTokenChanged(function (user) {
+    if (user) user.getIdToken().then(t => { idToken = t; }).catch(() => {});
+    else idToken = null;
+  });
+  firebase.auth().onAuthStateChanged(function (user) {
+    if (user) {
+      user.getIdToken().then(t => { idToken = t; onReady(); }).catch(() => onReady());
+    } else {
+      showFbLogin();
+    }
+  });
+}
+
+function afterFbAuth() {
+  document.getElementById('fb-login-screen').classList.add('hidden');
+  if (sessionStorage.getItem('bf_unlocked') === '1') {
+    startApp();
+  } else {
+    showPinScreen();
+  }
+}
+
 function boot() {
   populateCategoryDropdowns();
   bindAdd();
@@ -1328,12 +1406,9 @@ function boot() {
   bindPin();
   bindLogout();
   bindUnloadFlush();
+  bindFbLogin();
 
-  if (sessionStorage.getItem('bf_unlocked') === '1') {
-    startApp();
-  } else {
-    showPinScreen();
-  }
+  initFirebaseAuth(afterFbAuth);
 }
 
 if (document.readyState === 'loading') {
