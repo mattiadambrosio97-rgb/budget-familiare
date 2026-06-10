@@ -11,8 +11,9 @@
   <link rel="apple-touch-icon" href="icon.svg" />
 </head>
 <body>
-  <div id="sync-banner" class="sync-banner hidden">
-    <span id="sync-status">Sync...</span>
+  <div id="update-banner" class="update-banner hidden">
+    <span>Nuova versione disponibile</span>
+    <button id="update-reload-btn" class="update-reload-btn">Aggiorna</button>
   </div>
 
   <!-- Firebase login gate (una volta per dispositivo) -->
@@ -54,6 +55,10 @@
   <main id="app-container" class="hidden">
     <header class="app-header">
       <div class="header-title" id="header-title">Dashboard</div>
+      <div id="sync-indicator" class="sync-indicator sync-syncing" title="Stato sincronizzazione">
+        <span class="sync-dot"></span>
+        <span id="sync-text" class="sync-text">...</span>
+      </div>
     </header>
 
     <!-- DASHBOARD MESE (schermata principale) -->
@@ -279,10 +284,40 @@
 
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
   <script src="app.js"></script>
   <script>
+    // Service Worker con rilevamento aggiornamenti: l'app notifica l'utente
+    // quando c'e' una nuova versione e ricarica appena conferma.
     if ('serviceWorker' in navigator && location.protocol !== 'file:') {
-      window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+      window.addEventListener('load', async () => {
+        try {
+          const reg = await navigator.serviceWorker.register('sw.js');
+          // Mostra il banner di update quando un nuovo SW e' installato e
+          // c'e' gia' un controller attivo (= utente ha la vecchia versione).
+          function notifyIfWaiting(sw) {
+            if (sw && sw.state === 'installed' && navigator.serviceWorker.controller) {
+              if (typeof showUpdateBanner === 'function') showUpdateBanner();
+            }
+          }
+          if (reg.waiting) notifyIfWaiting(reg.waiting);
+          reg.addEventListener('updatefound', () => {
+            const nw = reg.installing;
+            if (!nw) return;
+            nw.addEventListener('statechange', () => notifyIfWaiting(nw));
+          });
+          // Controlla aggiornamenti periodicamente: nuove versioni intercettate
+          // anche senza chiudere/riaprire l'app (utile su mobile installata come PWA).
+          setInterval(() => reg.update().catch(() => {}), 60 * 1000);
+          // Se il controller cambia (nuovo SW preso il comando), ricarica.
+          let refreshing = false;
+          navigator.serviceWorker.addEventListener('controllerchange', () => {
+            if (refreshing) return;
+            refreshing = true;
+            window.location.reload();
+          });
+        } catch (e) {}
+      });
     }
   </script>
 </body>

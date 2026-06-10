@@ -5,8 +5,10 @@
 
 const STORAGE_PREFIX = 'bf_';
 const PIN = '020597';
-const FB_URL = 'https://agenda-f3298-default-rtdb.europe-west1.firebasedatabase.app/budget.json';
+const FB_PATH = '/budget';
+const FB_URL = 'https://agenda-f3298-default-rtdb.europe-west1.firebasedatabase.app' + FB_PATH + '.json';
 const SYNC_KEYS = ['movements', 'recurring', 'caps', 'sinking', 'income'];
+const PUSH_PENDING_KEY = STORAGE_PREFIX + '_pushPending';
 
 // --- Firebase Auth (login una volta per dispositivo, sessione persistente) ---
 const FIREBASE_CONFIG = {
@@ -20,18 +22,22 @@ const FIREBASE_CONFIG = {
 };
 let idToken = null;
 
-// URL con token per le chiamate REST autenticate al Realtime Database.
-async function authedUrl() {
+// URL con token sempre fresco. Forza refresh se >50min vecchio per evitare scadenza
+// mid-flight (i token Firebase durano 60min).
+async function authedUrl(forceRefresh) {
   try {
     const u = firebase.auth().currentUser;
-    if (u) idToken = await u.getIdToken();
+    if (u) idToken = await u.getIdToken(!!forceRefresh);
   } catch (e) {}
   return FB_URL + (idToken ? '?auth=' + idToken : '');
 }
 // Versione sincrona (per flush su unload): usa l'ultimo token in cache.
 function authParamSync() { return idToken ? '?auth=' + idToken : ''; }
-let syncEnabled = true;
+
 let syncInProgress = false;
+let lastPushTs = 0;        // timestamp dell'ultimo push riuscito (echo suppression)
+let isOnline = navigator.onLine !== false;
+let realtimeRef = null;    // riferimento Firebase per sync live
 
 const CATEGORIES = [
   { id: 'spesa-casa', name: 'Spesa + casa', color: '#16a34a', fixed: false },
@@ -91,6 +97,7 @@ const DEFAULT_RECURRING = [
 ];
 
 const MIN_MONTH = new Date(2026, 4, 1); // maggio 2026 (mese 4 = maggio, 0-indexed)
+const MAX_MONTH_OFFSET = 12;            // navigabile fino a 12 mesi nel futuro
 
 // ============================================================
 // STATE
@@ -155,19 +162,26 @@ function loadIncome() { return lsRead('income', [...DEFAULT_INCOME]); }
 function saveIncome(arr) { const ok = lsWrite('income', arr); if (ok) schedulePush(); return ok; }
 
 // ============================================================
-// FIREBASE SYNC (Realtime DB via REST)
+// FIREBASE SYNC (Realtime DB: SDK real-time + REST per push affidabile)
 // ============================================================
-function setSyncStatus(text, isError) {
-  const banner = document.getElementById('sync-banner');
-  const status = document.getElementById('sync-status');
-  if (!banner || !status) return;
-  banner.classList.remove('hidden');
-  banner.classList.toggle('sync-error', !!isError);
-  status.textContent = text;
-  if (!isError) {
-    setTimeout(() => banner.classList.add('hidden'), 2000);
-  }
+// Stati possibili dell'indicatore:
+//   'ok'      = sincronizzato col cloud, niente in coda
+//   'syncing' = push o pull in corso
+//   'warn'    = offline o nessun token, dati salvati solo in locale
+//   'error'   = ultima sync fallita, retry in corso con backoff
+function setSyncIndicator(state, txt) {
+  const el = document.getElementById('sync-indicator');
+  const t = document.getElementById('sync-text');
+  if (!el || !t) return;
+  el.classList.remove('sync-ok', 'sync-syncing', 'sync-warn', 'sync-error');
+  el.classList.add('sync-' + state);
+  const labels = { ok: 'OK', syncing: '...', warn: 'OFFLINE', error: 'ERRORE' };
+  t.textContent = txt || labels[state] || '';
 }
+
+function markPushPending() { try { localStorage.setItem(PUSH_PENDING_KEY, '1'); } catch (e) {} }
+function clearPushPending() { try { localStorage.removeItem(PUSH_PENDING_KEY); } catch (e) {} }
+function hasPushPending() { return localStorage.getItem(PUSH_PENDING_KEY) === '1'; }
 
 function buildPayload() {
   const payload = { _ts: Date.now() };
@@ -246,56 +260,65 @@ function applyRemotePayload(remote) {
 }
 
 async function fbPull() {
-  if (!syncEnabled) return null;
-  setSyncStatus('Sync in corso...');
+  setSyncIndicator('syncing');
   try {
     const r = await fetch(await authedUrl());
     if (!r.ok) throw new Error('HTTP ' + r.status);
-    const data = await r.json();
-    setSyncStatus('Sincronizzato');
-    return data;
+    return await r.json();
   } catch (e) {
-    setSyncStatus('Errore sync (offline)', true);
     console.warn('Pull failed:', e);
+    setSyncIndicator(isOnline ? 'error' : 'warn');
     return null;
   }
 }
 
 let pushTimer = null;
 let needRepush = false;
-function schedulePush() {
-  if (!syncEnabled) return;
+let pushBackoff = 200;     // backoff esponenziale: 200ms, 400, 800, ..., max 30s
+function schedulePush(delay) {
   clearTimeout(pushTimer);
-  pushTimer = setTimeout(fbPush, 200);
+  pushTimer = setTimeout(fbPush, typeof delay === 'number' ? delay : 200);
 }
 
 async function fbPush() {
-  if (!syncEnabled) return;
+  pushTimer = null;
   if (syncInProgress) {
-    // Un push e' gia' in volo. Segnaliamo che servira' un altro giro per
-    // catturare le modifiche fatte nel frattempo. Senza questo flag, la
-    // seconda modifica resterebbe solo in locale finche' l'utente non
-    // riavvia l'app.
+    // Push gia' in volo: rifaremo un giro dopo per catturare le modifiche fatte
+    // nel frattempo. Senza questo flag, la seconda modifica resterebbe solo
+    // in locale finche' l'utente non riapre l'app.
     needRepush = true;
+    return;
+  }
+  if (!firebase.auth().currentUser) {
+    // Non autenticato: lasciamo il flag pending e ritentiamo al login.
+    markPushPending();
+    setSyncIndicator('warn', 'NON LOGGATO');
     return;
   }
   syncInProgress = true;
   needRepush = false;
-  setSyncStatus('Salvataggio...');
+  markPushPending();   // garantisce retry al prossimo boot se questo fallisce
+  setSyncIndicator('syncing');
   try {
     const payload = buildPayload();
-    const r = await fetch(await authedUrl(), {
+    // Forza refresh del token: evita 401 silenzioso se il token in cache e' scaduto.
+    const url = await authedUrl(true);
+    if (!idToken) throw new Error('Nessun token disponibile');
+    const r = await fetch(url, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     });
     if (!r.ok) throw new Error('HTTP ' + r.status);
-    setSyncStatus('Sincronizzato');
+    lastPushTs = payload._ts;
+    pushBackoff = 200;       // reset backoff dopo successo
+    clearPushPending();
+    setSyncIndicator('ok');
   } catch (e) {
-    setSyncStatus('Errore salvataggio', true);
     console.warn('Push failed:', e);
-    // Retry automatico fra 3 secondi se errore di rete.
-    setTimeout(schedulePush, 3000);
+    pushBackoff = Math.min(pushBackoff * 2, 30000);
+    setSyncIndicator(isOnline ? 'error' : 'warn', isOnline ? 'RETRY' : 'OFFLINE');
+    schedulePush(pushBackoff);
   } finally {
     syncInProgress = false;
     if (needRepush) {
@@ -305,12 +328,17 @@ async function fbPush() {
   }
 }
 
-// Flush sincrono via fetch keepalive: garantisce che il push completi anche se
-// la pagina viene chiusa, messa in background o cambio scheda subito dopo un save.
-// keepalive ha limite 64KB per richiesta (sufficiente per il nostro payload).
+// Flush sincrono via fetch keepalive: garantisce arrivo della PUT anche se la
+// pagina viene chiusa, messa in background, cambio scheda. keepalive ha limite
+// 64KB per richiesta (ampio per il nostro payload).
+// Se non c'e' nulla in coda (pushTimer null e nessun pending), salta: niente
+// PUT inutili a ogni cambio scheda.
 function flushPushSync() {
-  if (!syncEnabled) return;
+  const hasTimer = !!pushTimer;
+  if (!hasTimer && !hasPushPending()) return;
   if (pushTimer) { clearTimeout(pushTimer); pushTimer = null; }
+  if (!firebase.auth().currentUser) return; // lo riprenderemo al prossimo login
+  markPushPending();
   try {
     const payload = JSON.stringify(buildPayload());
     fetch(FB_URL + authParamSync(), {
@@ -318,7 +346,7 @@ function flushPushSync() {
       headers: { 'Content-Type': 'application/json' },
       body: payload,
       keepalive: true
-    }).catch(() => {});
+    }).then(r => { if (r && r.ok) clearPushPending(); }).catch(() => {});
   } catch (e) {}
 }
 
@@ -328,19 +356,76 @@ async function initialSync() {
   if (remote && remote._ts && remote._ts > localTs) {
     const applied = applyRemotePayload(remote);
     if (applied) {
-      // Dopo il merge, _ts a max per non rifare apply ad ogni avvio.
       localStorage.setItem(STORAGE_PREFIX + '_ts', String(Math.max(localTs, remote._ts)));
-      // Forziamo push per propagare lo stato fuso: protegge le spese locali
-      // appena unite, che altrimenti vivrebbero solo sul dispositivo.
+      // Propaghiamo lo stato fuso: protegge le spese locali appena unite,
+      // altrimenti vivrebbero solo sul dispositivo.
       schedulePush();
     }
-  } else if (localTs > 0) {
+  } else if (localTs > 0 || hasPushPending()) {
     schedulePush();
+  }
+  setSyncIndicator(remote ? 'ok' : (isOnline ? 'error' : 'warn'));
+}
+
+// Sync real-time: ogni cambio cloud arriva entro 1-2 secondi su tutti i device.
+// Sostituisce il vecchio modello "pull solo al boot" che lasciava i device
+// disallineati finche' non si riapriva l'app.
+function setupRealtimeSync() {
+  if (typeof firebase === 'undefined' || !firebase.database) return;
+  try {
+    const db = firebase.database();
+    realtimeRef = db.ref(FB_PATH);
+    realtimeRef.on('value', snap => {
+      const data = snap.val();
+      if (!data || typeof data !== 'object') return;
+      // Echo suppression: se l'update e' il nostro stesso push appena fatto,
+      // ignoriamo per evitare rerender inutile.
+      if (data._ts && lastPushTs && data._ts === lastPushTs) return;
+      const localTs = parseInt(localStorage.getItem(STORAGE_PREFIX + '_ts') || '0', 10);
+      if (!data._ts || data._ts <= localTs) return;
+      const applied = applyRemotePayload(data);
+      if (applied) {
+        localStorage.setItem(STORAGE_PREFIX + '_ts', String(data._ts));
+        refreshAllCachesAndRender();
+        setSyncIndicator('ok');
+      }
+    }, err => {
+      console.warn('Realtime listener error:', err);
+      setSyncIndicator('error');
+    });
+    // Indicatore online/offline reale (Firebase sa se siamo connessi).
+    db.ref('.info/connected').on('value', s => {
+      isOnline = s.val() === true;
+      if (!isOnline) setSyncIndicator('warn');
+      else if (!syncInProgress) setSyncIndicator(hasPushPending() ? 'syncing' : 'ok');
+      // Quando torniamo online, ritenta i push in coda.
+      if (isOnline && hasPushPending()) schedulePush();
+    });
+  } catch (e) {
+    console.warn('Realtime sync setup failed', e);
+  }
+}
+
+// Rerender completo: usato quando il sync real-time porta dati nuovi.
+function refreshAllCachesAndRender() {
+  cachedRecurring = activeOnly(loadRecurring());
+  cachedMovements = filterMovementsByMonth(currentMonth);
+  cachedCaps = loadCaps();
+  cachedSinking = activeOnly(loadSinking());
+  cachedIncome = activeOnly(loadIncome());
+  // Render se i container esistono (l'app potrebbe essere ancora dietro il PIN).
+  if (document.getElementById('hero-residuo')) {
+    try { renderMonth(); } catch (e) {}
+    try { renderMovements(); } catch (e) {}
+    try { renderRecurring(); } catch (e) {}
+    try { renderCaps(); } catch (e) {}
+    try { renderSinking(); } catch (e) {}
+    try { renderIncome(); } catch (e) {}
   }
 }
 
 function bindUnloadFlush() {
-  // Quando l'app va in background o si chiude, forza il flush del push pendente.
+  // Quando l'app va in background o si chiude, forziamo il flush del push pendente.
   // Indispensabile su mobile: cambio scheda / app in background / chiusura tab
   // possono interrompere un setTimeout in volo. keepalive garantisce arrivo.
   document.addEventListener('visibilitychange', () => {
@@ -348,6 +433,15 @@ function bindUnloadFlush() {
   });
   window.addEventListener('pagehide', flushPushSync);
   window.addEventListener('beforeunload', flushPushSync);
+  // Online/offline browser (complementare a .info/connected di Firebase).
+  window.addEventListener('online', () => {
+    isOnline = true;
+    if (hasPushPending()) schedulePush();
+  });
+  window.addEventListener('offline', () => {
+    isOnline = false;
+    setSyncIndicator('warn');
+  });
 }
 
 // ============================================================
@@ -396,6 +490,10 @@ function migrateCategories() {
   // Idempotenza: gira una volta sola per versione. Evita di cancellare entita future
   // che matcherebbero pattern legacy (es. un futuro sinking con parola "palestra").
   if (localStorage.getItem(STORAGE_PREFIX + '_migration') === MIGRATION_VERSION) return;
+  // Ogni record toccato dalla migrazione riceve _modTs aggiornato. Cosi' il merge
+  // multi-device fa vincere la versione migrata sui device che ancora avevano
+  // i dati legacy.
+  const migTs = Date.now();
   // Step 1: vecchia 'bollette' -> 'abbonamenti' o 'casa-gas'
   // Step 2: vecchia 'casa-fisse' -> 'casa-gas'
   let touched = false;
@@ -404,9 +502,11 @@ function migrateCategories() {
     if (m.category === 'bollette') {
       const txt = ((m.note || '') + ' ' + (m.name || '')).toLowerCase();
       m.category = txt.includes('bombola') || txt.includes('gas') ? 'casa-gas' : 'abbonamenti';
+      m._modTs = migTs;
       touched = true;
     } else if (m.category === 'casa-fisse') {
       m.category = 'casa-gas';
+      m._modTs = migTs;
       touched = true;
     }
   }
@@ -418,9 +518,11 @@ function migrateCategories() {
     if (r.category === 'bollette') {
       const n = (r.name || '').toLowerCase();
       r.category = n.includes('bombola') || n.includes('gas') ? 'casa-gas' : 'abbonamenti';
+      r._modTs = migTs;
       touchedR = true;
     } else if (r.category === 'casa-fisse') {
       r.category = 'casa-gas';
+      r._modTs = migTs;
       touchedR = true;
     }
   }
@@ -428,6 +530,7 @@ function migrateCategories() {
   for (const r of recs) {
     if (r.name === 'Pulizia signora') {
       r.name = 'Signora delle pulizie';
+      r._modTs = migTs;
       touchedR = true;
     }
   }
@@ -436,16 +539,16 @@ function migrateCategories() {
   const hasPulizia = recs.some(r => r.category === 'casa-pulizia');
   const hasBarbiere = recs.some(r => r.category === 'cura-personale');
   if (!hasPulizia) {
-    recs.push({ id: uuid(), name: 'Signora delle pulizie', amount: 64, category: 'casa-pulizia', dayOfMonth: 1, active: true, lastGeneratedMonth: null });
+    recs.push({ id: uuid(), name: 'Signora delle pulizie', amount: 64, category: 'casa-pulizia', dayOfMonth: 1, active: true, lastGeneratedMonth: null, _modTs: migTs });
     touchedR = true;
   }
   if (!hasBarbiere) {
-    recs.push({ id: uuid(), name: 'Barbiere', amount: 30, category: 'cura-personale', dayOfMonth: 1, active: true, lastGeneratedMonth: null });
+    recs.push({ id: uuid(), name: 'Barbiere', amount: 30, category: 'cura-personale', dayOfMonth: 1, active: true, lastGeneratedMonth: null, _modTs: migTs });
     touchedR = true;
   }
   const hasMichCura = recs.some(r => r.name && r.name.toLowerCase().includes('mich'));
   if (!hasMichCura) {
-    recs.push({ id: uuid(), name: 'Mich cura di sé', amount: 60, category: 'cura-personale', dayOfMonth: 1, active: true, lastGeneratedMonth: null });
+    recs.push({ id: uuid(), name: 'Mich cura di sé', amount: 60, category: 'cura-personale', dayOfMonth: 1, active: true, lastGeneratedMonth: null, _modTs: migTs });
     touchedR = true;
   }
 
@@ -467,18 +570,26 @@ function migrateCategories() {
     if (s.name === 'Fondo emergenza' || s.id === 's-emergenza') {
       s.name = 'Salvadanaio coppia';
       s.note = 'Crescita patrimonio, conto deposito intoccabile';
+      s._modTs = migTs;
       touchedS = true;
     }
   }
-  const beforeLen = sinks.length;
-  const sinksFiltered = sinks.filter(s => !(s.name && s.name.toLowerCase().includes('palestra')));
-  if (sinksFiltered.length !== beforeLen) touchedS = true;
-  const hasRegali = sinksFiltered.some(s => s.name && s.name.toLowerCase().includes('regali'));
+  // Le voci "palestra" diventano tombstone invece di scomparire: la cancellazione
+  // si propaga via merge multi-device (altrimenti un device che ancora le aveva
+  // le rimetterebbe in vita al prossimo sync).
+  for (const s of sinks) {
+    if (s.name && s.name.toLowerCase().includes('palestra') && !s._deleted) {
+      s._deleted = true;
+      s._modTs = migTs;
+      touchedS = true;
+    }
+  }
+  const hasRegali = sinks.some(s => !s._deleted && s.name && s.name.toLowerCase().includes('regali'));
   if (!hasRegali) {
-    sinksFiltered.push({ id: uuid(), name: 'Sinking regali', amount: 50, note: 'Natale, compleanni, occasioni' });
+    sinks.push({ id: uuid(), name: 'Sinking regali', amount: 50, note: 'Natale, compleanni, occasioni', _modTs: migTs });
     touchedS = true;
   }
-  if (touchedS) { lsWrite('sinking', sinksFiltered); schedulePush(); }
+  if (touchedS) { lsWrite('sinking', sinks); schedulePush(); }
   localStorage.setItem(STORAGE_PREFIX + '_migration', MIGRATION_VERSION);
 }
 
@@ -647,7 +758,7 @@ function bindSplit() {
       amount: parseFloat(r.querySelector('.split-amount').value) || 0,
       category: r.querySelector('.split-category').value
     })).filter(d => d.amount > 0 && d.category);
-    if (data.length === 0) { alert('Aggiungi almeno una riga con importo e categoria.'); return; }
+    if (data.length === 0) { showToast('Aggiungi almeno una riga con importo e categoria.', true); return; }
     const splitGroupId = uuid();
     const movs = loadMovements();
     const nowTs = Date.now();
@@ -690,7 +801,12 @@ function bindMonthNav() {
     renderMonth(); renderMovements();
   });
   document.getElementById('next-month').addEventListener('click', function () {
-    currentMonth.setMonth(currentMonth.getMonth() + 1);
+    const candidate = new Date(currentMonth);
+    candidate.setMonth(candidate.getMonth() + 1);
+    const maxAllowed = new Date();
+    maxAllowed.setMonth(maxAllowed.getMonth() + MAX_MONTH_OFFSET);
+    if (candidate > maxAllowed) return;
+    currentMonth = candidate;
     cachedMovements = filterMovementsByMonth(currentMonth);
     renderMonth(); renderMovements();
   });
@@ -1368,7 +1484,11 @@ function initFirebaseAuth(onReady) {
   firebase.initializeApp(FIREBASE_CONFIG);
   firebase.auth().setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(() => {});
   firebase.auth().onIdTokenChanged(function (user) {
-    if (user) user.getIdToken().then(t => { idToken = t; }).catch(() => {});
+    if (user) user.getIdToken().then(t => {
+      idToken = t;
+      // Nuovo token disponibile: se c'erano push falliti per auth, riprova subito.
+      if (hasPushPending()) schedulePush(50);
+    }).catch(() => {});
     else idToken = null;
   });
   firebase.auth().onAuthStateChanged(function (user) {
@@ -1380,13 +1500,39 @@ function initFirebaseAuth(onReady) {
   });
 }
 
+let realtimeStarted = false;
 function afterFbAuth() {
   document.getElementById('fb-login-screen').classList.add('hidden');
+  // Sync real-time parte appena loggato, prima del PIN gate, cosi' lo stato
+  // si allinea anche mentre l'utente digita il PIN.
+  if (!realtimeStarted) {
+    setupRealtimeSync();
+    realtimeStarted = true;
+  }
   if (sessionStorage.getItem('bf_unlocked') === '1') {
     startApp();
   } else {
     showPinScreen();
   }
+}
+
+function bindUpdateBanner() {
+  const btn = document.getElementById('update-reload-btn');
+  if (!btn) return;
+  btn.addEventListener('click', function () {
+    // Flush prima del reload: non perdiamo modifiche locali in coda.
+    flushPushSync();
+    // Forza il nuovo SW a prendere il controllo e ricarica.
+    if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+      try { navigator.serviceWorker.controller.postMessage({ type: 'SKIP_WAITING' }); } catch (e) {}
+    }
+    setTimeout(() => window.location.reload(), 200);
+  });
+}
+
+function showUpdateBanner() {
+  const b = document.getElementById('update-banner');
+  if (b) b.classList.remove('hidden');
 }
 
 function boot() {
@@ -1407,6 +1553,7 @@ function boot() {
   bindLogout();
   bindUnloadFlush();
   bindFbLogin();
+  bindUpdateBanner();
 
   initFirebaseAuth(afterFbAuth);
 }
