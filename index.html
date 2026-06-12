@@ -2,13 +2,17 @@
 <html lang="it">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="theme-color" content="#16a34a" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="Budget" />
   <title>Budget Familiare</title>
   <link rel="manifest" href="manifest.json" />
   <link rel="stylesheet" href="styles.css" />
   <link rel="icon" href="icon.svg" type="image/svg+xml" />
-  <link rel="apple-touch-icon" href="icon.svg" />
+  <!-- iOS non supporta SVG per l'icona home: serve un PNG. -->
+  <link rel="apple-touch-icon" href="icon-180.png" />
 </head>
 <body>
   <div id="update-banner" class="update-banner hidden">
@@ -287,29 +291,35 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
   <script src="app.js"></script>
   <script>
-    // Service Worker con rilevamento aggiornamenti: l'app notifica l'utente
-    // quando c'e' una nuova versione e ricarica appena conferma.
+    // Service Worker con rilevamento aggiornamenti.
+    // Flusso corretto (chiude il loop del banner "Aggiorna"):
+    //   1. quando un nuovo SW e' "installed" e c'e' gia' un controller, mostra il banner;
+    //   2. al clic, la pagina manda SKIP_WAITING AL SW IN WAITING (non al controller
+    //      vecchio, che ignorerebbe il messaggio lasciando il nuovo SW bloccato e il
+    //      banner a ricomparire a ogni reload);
+    //   3. il nuovo SW si attiva, scatta 'controllerchange', e SOLO li' si ricarica una volta.
+    // window.__swWaiting tiene il riferimento al SW da promuovere; lo usa il bottone in app.js.
     if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+      window.__swWaiting = null;
       window.addEventListener('load', async () => {
         try {
           const reg = await navigator.serviceWorker.register('sw.js');
-          // Mostra il banner di update quando un nuovo SW e' installato e
-          // c'e' gia' un controller attivo (= utente ha la vecchia versione).
-          function notifyIfWaiting(sw) {
+          function promote(sw) {
+            // Banner solo se c'e' gia' un controller (utente sulla vecchia versione).
             if (sw && sw.state === 'installed' && navigator.serviceWorker.controller) {
+              window.__swWaiting = sw;
               if (typeof showUpdateBanner === 'function') showUpdateBanner();
             }
           }
-          if (reg.waiting) notifyIfWaiting(reg.waiting);
+          if (reg.waiting) promote(reg.waiting);
           reg.addEventListener('updatefound', () => {
             const nw = reg.installing;
             if (!nw) return;
-            nw.addEventListener('statechange', () => notifyIfWaiting(nw));
+            nw.addEventListener('statechange', () => promote(nw));
           });
-          // Controlla aggiornamenti periodicamente: nuove versioni intercettate
-          // anche senza chiudere/riaprire l'app (utile su mobile installata come PWA).
+          // Controlla aggiornamenti periodicamente (PWA installata su mobile).
           setInterval(() => reg.update().catch(() => {}), 60 * 1000);
-          // Se il controller cambia (nuovo SW preso il comando), ricarica.
+          // Quando il nuovo SW prende il comando, ricarica una sola volta.
           let refreshing = false;
           navigator.serviceWorker.addEventListener('controllerchange', () => {
             if (refreshing) return;

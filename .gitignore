@@ -6,3 +6,5 @@ node_modules/
 .env
 .env.local
 _backup-pre-audit-2026-06-10/
+_backup-pre-fix-*/
+_AUDIT-*.md

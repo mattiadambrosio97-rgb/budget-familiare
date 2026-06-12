@@ -39,17 +39,20 @@ let lastPushTs = 0;        // timestamp dell'ultimo push riuscito (echo suppress
 let isOnline = navigator.onLine !== false;
 let realtimeRef = null;    // riferimento Firebase per sync live
 
+// Colori usati sia per i dot/barre sia per i badge a testo bianco: scelti per
+// dare almeno 4.5:1 col bianco a 11px (bug U5 dell'audit; prima benzina/palestra/
+// gas/spesa erano sotto soglia). Restano nella stessa famiglia cromatica.
 const CATEGORIES = [
-  { id: 'spesa-casa', name: 'Spesa + casa', color: '#16a34a', fixed: false },
-  { id: 'benzina', name: 'Benzina', color: '#d97706', fixed: false },
+  { id: 'spesa-casa', name: 'Spesa + casa', color: '#15803d', fixed: false },
+  { id: 'benzina', name: 'Benzina', color: '#b45309', fixed: false },
   { id: 'animali', name: 'Animali', color: '#9333ea', fixed: false },
   { id: 'sfizi', name: 'Sfizi e uscite', color: '#dc2626', fixed: false },
-  { id: 'regali', name: 'Regali', color: '#db2777', fixed: false },
+  { id: 'regali', name: 'Regali', color: '#be185d', fixed: false },
   { id: 'abbigliamento', name: 'Abbigliamento', color: '#7c3aed', fixed: false },
-  { id: 'palestra-vitamine', name: 'Palestra + Vitamine', color: '#f59e0b', fixed: false },
+  { id: 'palestra-vitamine', name: 'Palestra + Vitamine', color: '#a16207', fixed: false },
   { id: 'abbonamenti', name: 'Abbonamenti streaming/SaaS', color: '#2563eb', fixed: true },
-  { id: 'casa-gas', name: 'Casa - bombola gas', color: '#0d9488', fixed: true },
-  { id: 'casa-pulizia', name: 'Casa - pulizia signora', color: '#0891b2', fixed: true },
+  { id: 'casa-gas', name: 'Casa - bombola gas', color: '#0f766e', fixed: true },
+  { id: 'casa-pulizia', name: 'Casa - pulizia signora', color: '#0e7490', fixed: true },
   { id: 'cura-personale', name: 'Cura personale', color: '#be185d', fixed: true },
   { id: 'vacanze', name: 'Vacanze/viaggi', color: '#475569', fixed: false, hidden: true }
 ];
@@ -79,21 +82,24 @@ const DEFAULT_SINKING = [
   { id: 's-regali', name: 'Sinking regali', amount: 50, note: 'Natale, compleanni, occasioni' }
 ];
 
+// Id deterministici (r-...) come per sinking (s-...) e income (i-...): cosi' due
+// device che seminano i default in autonomia (primo avvio con pull fallito) NON
+// li duplicano al merge successivo (bug B4 dell'audit). Gli id non vanno piu' cambiati.
 const DEFAULT_RECURRING = [
-  { name: 'OpenAI ChatGPT Plus', amount: 21, category: 'abbonamenti', dayOfMonth: 24 },
-  { name: 'Apple #1', amount: 9.99, category: 'abbonamenti', dayOfMonth: 5 },
-  { name: 'Apple #2', amount: 9.99, category: 'abbonamenti', dayOfMonth: 19 },
-  { name: 'CapCut Pro', amount: 11.99, category: 'abbonamenti', dayOfMonth: 6 },
-  { name: 'Telecom Italia', amount: 10.97, category: 'abbonamenti', dayOfMonth: 17 },
-  { name: 'Iliad', amount: 7.99, category: 'abbonamenti', dayOfMonth: 20 },
-  { name: 'Netflix', amount: 6.99, category: 'abbonamenti', dayOfMonth: 25 },
-  { name: 'Disney+', amount: 6.99, category: 'abbonamenti', dayOfMonth: 17 },
-  { name: 'HBO Max', amount: 5.99, category: 'abbonamenti', dayOfMonth: 11 },
-  { name: 'Canone conto Intesa', amount: 3.95, category: 'abbonamenti', dayOfMonth: 28 },
-  { name: 'Bombola gas (media)', amount: 45, category: 'casa-gas', dayOfMonth: 15 },
-  { name: 'Signora delle pulizie', amount: 64, category: 'casa-pulizia', dayOfMonth: 1 },
-  { name: 'Barbiere', amount: 30, category: 'cura-personale', dayOfMonth: 1 },
-  { name: 'Mich cura di sé', amount: 60, category: 'cura-personale', dayOfMonth: 1 }
+  { id: 'r-openai', name: 'OpenAI ChatGPT Plus', amount: 21, category: 'abbonamenti', dayOfMonth: 24 },
+  { id: 'r-apple1', name: 'Apple #1', amount: 9.99, category: 'abbonamenti', dayOfMonth: 5 },
+  { id: 'r-apple2', name: 'Apple #2', amount: 9.99, category: 'abbonamenti', dayOfMonth: 19 },
+  { id: 'r-capcut', name: 'CapCut Pro', amount: 11.99, category: 'abbonamenti', dayOfMonth: 6 },
+  { id: 'r-tim', name: 'Telecom Italia', amount: 10.97, category: 'abbonamenti', dayOfMonth: 17 },
+  { id: 'r-iliad', name: 'Iliad', amount: 7.99, category: 'abbonamenti', dayOfMonth: 20 },
+  { id: 'r-netflix', name: 'Netflix', amount: 6.99, category: 'abbonamenti', dayOfMonth: 25 },
+  { id: 'r-disney', name: 'Disney+', amount: 6.99, category: 'abbonamenti', dayOfMonth: 17 },
+  { id: 'r-hbo', name: 'HBO Max', amount: 5.99, category: 'abbonamenti', dayOfMonth: 11 },
+  { id: 'r-intesa', name: 'Canone conto Intesa', amount: 3.95, category: 'abbonamenti', dayOfMonth: 28 },
+  { id: 'r-gas', name: 'Bombola gas (media)', amount: 45, category: 'casa-gas', dayOfMonth: 15 },
+  { id: 'r-signora', name: 'Signora delle pulizie', amount: 64, category: 'casa-pulizia', dayOfMonth: 1 },
+  { id: 'r-barbiere', name: 'Barbiere', amount: 30, category: 'cura-personale', dayOfMonth: 1 },
+  { id: 'r-michcura', name: 'Mich cura di sé', amount: 60, category: 'cura-personale', dayOfMonth: 1 }
 ];
 
 const MIN_MONTH = new Date(2026, 4, 1); // maggio 2026 (mese 4 = maggio, 0-indexed)
@@ -141,7 +147,7 @@ function loadRecurring() {
   let arr = lsRead('recurring', null);
   if (arr === null) {
     arr = DEFAULT_RECURRING.map(r => ({
-      id: uuid(),
+      id: r.id,
       name: r.name,
       amount: r.amount,
       category: r.category,
@@ -155,7 +161,37 @@ function loadRecurring() {
 }
 function saveRecurring(arr) { const ok = lsWrite('recurring', arr); if (ok) schedulePush(); return ok; }
 function loadCaps() { return lsRead('caps', { ...DEFAULT_CAPS }); }
-function saveCaps(obj) { const ok = lsWrite('caps', obj); if (ok) schedulePush(); return ok; }
+function saveCaps(obj) {
+  // Timbra un timestamp per categoria nel sotto-oggetto nascosto `_t`, cosi' il
+  // merge multi-device puo' tenere il valore piu' recente categoria per categoria
+  // (prima i caps venivano sovrascritti in blocco da un PUT stantio dell'altro device).
+  // I dati esistenti senza `_t` valgono timestamp 0: un salvataggio vince sempre su di essi,
+  // e un push stantio senza `_t` non sovrascrive piu' un tetto appena modificato qui.
+  const now = Date.now();
+  const out = {};
+  const t = { ...(obj._t || {}) };
+  for (const k in obj) { if (k !== '_t') { out[k] = obj[k]; t[k] = now; } }
+  out._t = t;
+  const ok = lsWrite('caps', out);
+  if (ok) schedulePush();
+  return ok;
+}
+// Merge dei tetti categoria per categoria: vince il valore col `_t` piu' recente.
+function mergeCaps(local, remote) {
+  local = local && typeof local === 'object' ? local : {};
+  remote = remote && typeof remote === 'object' ? remote : {};
+  const lt = local._t || {}, rt = remote._t || {};
+  const out = {}, outT = {};
+  const keys = new Set([...Object.keys(local), ...Object.keys(remote)].filter(k => k !== '_t'));
+  for (const k of keys) {
+    const lts = lt[k] || 0, rts = rt[k] || 0;
+    // A parita' (tipico: entrambi senza _t, dati legacy) tiene il valore locale.
+    if (rts > lts) { out[k] = remote[k]; outT[k] = rts; }
+    else { out[k] = (k in local) ? local[k] : remote[k]; outT[k] = Math.max(lts, rts); }
+  }
+  out._t = outT;
+  return out;
+}
 function loadSinking() { return lsRead('sinking', [...DEFAULT_SINKING]); }
 function saveSinking(arr) { const ok = lsWrite('sinking', arr); if (ok) schedulePush(); return ok; }
 function loadIncome() { return lsRead('income', [...DEFAULT_INCOME]); }
@@ -238,7 +274,12 @@ function purgeOldTombstones() {
   if (changed) schedulePush();
 }
 
+// True dopo l'ultimo applyRemotePayload se la fusione ha conservato dati locali
+// assenti (o piu' recenti) nel remoto: in quel caso lo stato fuso va ri-pushato,
+// altrimenti vivrebbe solo su questo device e il server resterebbe monco.
+let lastMergeNeedsRepush = false;
 function applyRemotePayload(remote) {
+  lastMergeNeedsRepush = false;
   if (!remote || typeof remote !== 'object') return false;
   let applied = false;
   const MERGE_KEYS = ['movements', 'recurring', 'sinking', 'income'];
@@ -248,7 +289,21 @@ function applyRemotePayload(remote) {
         const parsed = JSON.parse(remote[k]);
         if (MERGE_KEYS.includes(k) && Array.isArray(parsed)) {
           const local = lsRead(k, []);
-          lsWrite(k, mergeById(local, parsed));
+          const merged = mergeById(local, parsed);
+          // Se la fusione ha piu' voci del remoto, il server non aveva tutto: ri-push.
+          if (merged.length > parsed.length) lastMergeNeedsRepush = true;
+          lsWrite(k, merged);
+        } else if (k === 'caps') {
+          // Merge per categoria col timestamp `_t`: niente piu' sovrascrittura
+          // in blocco di un tetto modificato qui da un payload stantio dell'altro device.
+          const local = lsRead('caps', {});
+          const merged = mergeCaps(local, parsed);
+          // Se un tetto locale ha vinto sul remoto (valore diverso), ri-push.
+          for (const ck in merged) {
+            if (ck === '_t') continue;
+            if (merged[ck] !== parsed[ck]) { lastMergeNeedsRepush = true; break; }
+          }
+          lsWrite('caps', merged);
         } else {
           lsWrite(k, parsed);
         }
@@ -289,10 +344,11 @@ async function fbPush() {
     needRepush = true;
     return;
   }
-  if (!firebase.auth().currentUser) {
-    // Non autenticato: lasciamo il flag pending e ritentiamo al login.
+  if (typeof firebase === 'undefined' || !firebase.auth || !firebase.auth().currentUser) {
+    // SDK assente (offline) o non autenticato: lasciamo il flag pending e
+    // ritentiamo al login / al ritorno della rete. Le modifiche restano in locale.
     markPushPending();
-    setSyncIndicator('warn', 'NON LOGGATO');
+    setSyncIndicator('warn', typeof firebase === 'undefined' ? 'OFFLINE' : 'NON LOGGATO');
     return;
   }
   syncInProgress = true;
@@ -337,7 +393,7 @@ function flushPushSync() {
   const hasTimer = !!pushTimer;
   if (!hasTimer && !hasPushPending()) return;
   if (pushTimer) { clearTimeout(pushTimer); pushTimer = null; }
-  if (!firebase.auth().currentUser) return; // lo riprenderemo al prossimo login
+  if (typeof firebase === 'undefined' || !firebase.auth || !firebase.auth().currentUser) return; // lo riprenderemo al prossimo login
   markPushPending();
   try {
     const payload = JSON.stringify(buildPayload());
@@ -386,6 +442,10 @@ function setupRealtimeSync() {
       const applied = applyRemotePayload(data);
       if (applied) {
         localStorage.setItem(STORAGE_PREFIX + '_ts', String(data._ts));
+        // Se il merge ha conservato dati locali assenti dal remoto, ri-pusha lo
+        // stato fuso: senza questo il server resterebbe monco finche' l'utente
+        // non rifa una modifica qualsiasi (bug B3 dell'audit).
+        if (lastMergeNeedsRepush) schedulePush();
         refreshAllCachesAndRender();
         setSyncIndicator('ok');
       }
@@ -406,6 +466,28 @@ function setupRealtimeSync() {
   }
 }
 
+// Esegue il render di tutte le viste. Separato cosi' da poterlo rimandare.
+function doRenderAll() {
+  if (!document.getElementById('hero-residuo')) return; // ancora dietro il PIN
+  try { renderMonth(); } catch (e) {}
+  try { renderMovements(); } catch (e) {}
+  try { renderRecurring(); } catch (e) {}
+  try { renderCaps(); } catch (e) {}
+  try { renderSinking(); } catch (e) {}
+  try { renderIncome(); } catch (e) {}
+}
+
+// Se l'utente sta scrivendo in un campo (es. i tetti, salvati solo col bottone),
+// un render distruttivo da sync remoto perderebbe il valore digitato e il focus.
+// Rimandiamo il render al focusout (bug B8 dell'audit). I dati sono gia' in
+// localStorage: il render rimandato e' solo cosmetico, non si perde nulla.
+let pendingRender = false;
+function safeRender() {
+  const ae = document.activeElement;
+  if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'SELECT')) { pendingRender = true; return; }
+  doRenderAll();
+}
+
 // Rerender completo: usato quando il sync real-time porta dati nuovi.
 function refreshAllCachesAndRender() {
   cachedRecurring = activeOnly(loadRecurring());
@@ -413,15 +495,7 @@ function refreshAllCachesAndRender() {
   cachedCaps = loadCaps();
   cachedSinking = activeOnly(loadSinking());
   cachedIncome = activeOnly(loadIncome());
-  // Render se i container esistono (l'app potrebbe essere ancora dietro il PIN).
-  if (document.getElementById('hero-residuo')) {
-    try { renderMonth(); } catch (e) {}
-    try { renderMovements(); } catch (e) {}
-    try { renderRecurring(); } catch (e) {}
-    try { renderCaps(); } catch (e) {}
-    try { renderSinking(); } catch (e) {}
-    try { renderIncome(); } catch (e) {}
-  }
+  safeRender();
 }
 
 function bindUnloadFlush() {
@@ -429,7 +503,26 @@ function bindUnloadFlush() {
   // Indispensabile su mobile: cambio scheda / app in background / chiusura tab
   // possono interrompere un setTimeout in volo. keepalive garantisce arrivo.
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'hidden') flushPushSync();
+    if (document.visibilityState === 'hidden') { flushPushSync(); return; }
+    // Tornati in primo piano: se nel frattempo e' cambiato il mese (PWA tenuta
+    // aperta a cavallo della mezzanotte del 1), rigenera le ricorrenti e riallinea
+    // la vista al mese corrente (bug B6 dell'audit).
+    try {
+      const now = new Date();
+      ensureRecurringForMonth();
+      cachedRecurring = activeOnly(loadRecurring());
+      const wasViewingCurrent = (currentMonth.getFullYear() === now.getFullYear() && currentMonth.getMonth() === now.getMonth());
+      if (!wasViewingCurrent && document.getElementById('hero-residuo')) {
+        // Non spostiamo a forza la vista se l'utente stava guardando un altro mese
+        // di proposito; rigeneriamo solo i dati. Il render naturale mostrera' i nuovi.
+      }
+      cachedMovements = filterMovementsByMonth(currentMonth);
+      if (document.getElementById('hero-residuo')) { try { renderMonth(); } catch (e) {} try { renderMovements(); } catch (e) {} }
+    } catch (e) {}
+  });
+  // Render rimandato (safeRender): lo scarichiamo quando l'utente lascia il campo.
+  document.addEventListener('focusout', () => {
+    if (pendingRender) { pendingRender = false; setTimeout(doRenderAll, 120); }
   });
   window.addEventListener('pagehide', flushPushSync);
   window.addEventListener('beforeunload', flushPushSync);
@@ -604,51 +697,59 @@ function filterMovementsByMonth(month) {
 // ============================================================
 // RICORRENTI: generazione automatica del mese corrente
 // ============================================================
+// Genera le spese ricorrenti dei mesi mancanti, dal mese successivo a
+// lastGeneratedMonth fino al mese corrente incluso (catch-up: bug B6 dell'audit,
+// un mese in cui l'app non viene aperta non resta piu' senza spese fisse).
+// L'id del movimento generato e' DETERMINISTICO (recurringId:YYYY-MM): cosi' due
+// device che generano lo stesso mese producono lo stesso id e mergeById li collassa
+// (niente piu' doppia generazione, bug B5), ed e' idempotente per costruzione.
 function ensureRecurringForMonth() {
   const now = new Date();
-  const mk = monthKey(now);
+  const curY = now.getFullYear(), curM = now.getMonth();
   const recs = loadRecurring();
   const movs = loadMovements();
   const nowTs = Date.now();
-  // Costruisce un set degli recurringId gia' presenti nei movimenti del mese
-  // corrente, considerando anche i tombstones (per non rigenerare voci cancellate
-  // dall'utente). Difesa supplementare contro la duplicazione su nuovo dispositivo.
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
-  const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1).getTime();
-  const alreadyHas = new Set();
-  for (const m of movs) {
-    if (!m || !m.recurringId) continue;
-    const t = +new Date(m.date);
-    if (t >= monthStart && t < monthEnd) alreadyHas.add(m.recurringId);
-  }
+  // Indice degli id movimento gia' presenti (inclusi i tombstones: una voce
+  // cancellata dall'utente non va rigenerata).
+  const existingIds = new Set(movs.map(m => m && m.id).filter(Boolean));
   let touched = false;
+
   for (const rec of recs) {
-    if (!rec || rec._deleted) continue;
-    if (!rec.active) continue;
-    if (rec.lastGeneratedMonth === mk) continue;
-    if (alreadyHas.has(rec.id)) {
-      // Difesa: il movimento esiste gia' (es. generato da altro dispositivo).
-      // Aggiorniamo solo il flag e non aggiungiamo.
-      rec.lastGeneratedMonth = mk;
-      rec._modTs = nowTs;
-      touched = true;
-      continue;
+    if (!rec || rec._deleted || !rec.active) continue;
+    // Punto di partenza del catch-up: il mese dopo lastGeneratedMonth, oppure il
+    // mese corrente se non e' mai stato generato nulla (niente storia retroattiva).
+    let y = curY, m = curM;
+    if (rec.lastGeneratedMonth && /^\d{4}-\d{2}$/.test(rec.lastGeneratedMonth)) {
+      const [ly, lm] = rec.lastGeneratedMonth.split('-').map(Number);
+      y = ly; m = lm - 1 + 1; // mese successivo (0-indexed: lm-1, poi +1)
+      if (m > 11) { m = 0; y++; }
     }
-    const day = Math.min(Math.max(parseInt(rec.dayOfMonth) || 1, 1), 28);
-    const movDate = new Date(now.getFullYear(), now.getMonth(), day, 12, 0, 0);
-    movs.push({
-      id: uuid(),
-      date: movDate.toISOString(),
-      amount: rec.amount,
-      category: rec.category,
-      note: rec.name + ' (ricorrente)',
-      isRecurring: true,
-      recurringId: rec.id,
-      _modTs: nowTs
-    });
-    rec.lastGeneratedMonth = mk;
-    rec._modTs = nowTs;
-    touched = true;
+    // Itera i mesi mancanti fino al corrente (cap a 24 iterazioni per sicurezza).
+    let guard = 0;
+    while ((y < curY || (y === curY && m <= curM)) && guard++ < 24) {
+      const mk = y + '-' + String(m + 1).padStart(2, '0');
+      const movId = rec.id + ':' + mk;
+      if (!existingIds.has(movId)) {
+        const day = Math.min(Math.max(parseInt(rec.dayOfMonth) || 1, 1), 28);
+        const movDate = new Date(y, m, day, 12, 0, 0);
+        movs.push({
+          id: movId,
+          date: movDate.toISOString(),
+          amount: rec.amount,
+          category: rec.category,
+          note: rec.name + ' (ricorrente)',
+          isRecurring: true,
+          recurringId: rec.id,
+          _modTs: nowTs
+        });
+        existingIds.add(movId);
+        touched = true;
+      }
+      if (m === curM && y === curY) break;
+      m++; if (m > 11) { m = 0; y++; }
+    }
+    const curMk = curY + '-' + String(curM + 1).padStart(2, '0');
+    if (rec.lastGeneratedMonth !== curMk) { rec.lastGeneratedMonth = curMk; rec._modTs = nowTs; touched = true; }
   }
   if (touched) { saveMovements(movs); saveRecurring(recs); }
 }
@@ -677,7 +778,8 @@ function bindAdd() {
     const amount = parseFloat(document.getElementById('add-amount').value);
     const category = document.getElementById('add-category').value;
     const note = document.getElementById('add-note').value.trim();
-    if (!dateStr || !amount || !category) return;
+    if (!dateStr || !category) { showToast('Compila data e categoria.', true); return; }
+    if (!(amount > 0)) { showToast('Inserisci un importo maggiore di zero.', true); return; }
     const movs = loadMovements();
     movs.push({
       id: uuid(),
@@ -815,13 +917,27 @@ function bindMonthNav() {
 function updateMonthNavState() {
   const prev = new Date(currentMonth);
   prev.setMonth(prev.getMonth() - 1);
-  const btn = document.getElementById('prev-month');
+  const prevBtn = document.getElementById('prev-month');
   if (prev < MIN_MONTH) {
-    btn.classList.add('disabled');
-    btn.setAttribute('aria-disabled', 'true');
+    prevBtn.classList.add('disabled');
+    prevBtn.setAttribute('aria-disabled', 'true');
   } else {
-    btn.classList.remove('disabled');
-    btn.removeAttribute('aria-disabled');
+    prevBtn.classList.remove('disabled');
+    prevBtn.removeAttribute('aria-disabled');
+  }
+  // Stesso trattamento per il bottone "mese successivo" al limite +12 mesi
+  // (prima restava attivo ma muto, bug U10 dell'audit).
+  const next = new Date(currentMonth);
+  next.setMonth(next.getMonth() + 1);
+  const maxAllowed = new Date();
+  maxAllowed.setMonth(maxAllowed.getMonth() + MAX_MONTH_OFFSET);
+  const nextBtn = document.getElementById('next-month');
+  if (next > maxAllowed) {
+    nextBtn.classList.add('disabled');
+    nextBtn.setAttribute('aria-disabled', 'true');
+  } else {
+    nextBtn.classList.remove('disabled');
+    nextBtn.removeAttribute('aria-disabled');
   }
 }
 
@@ -841,24 +957,37 @@ function renderMonth() {
     const cat = getCategory(m.category);
     if (cat && cat.fixed) totalFixed += m.amount;
     else totalVariable += m.amount;
+    // Giorno locale via getter (non slice UTC: pattern fragile dell'audit B12).
     const mDate = new Date(m.date);
-    const dStr = mDate.toISOString().slice(0, 10);
+    const dStr = mDate.getFullYear() + '-' + String(mDate.getMonth() + 1).padStart(2, '0') + '-' + String(mDate.getDate()).padStart(2, '0');
     if (dStr === todayStr) totalToday += m.amount;
   }
 
-  // Tetto su solo variabili
+  // Tetto su sole variabili VISIBILI: coerente con quadro e lista categorie
+  // (prima la hero includeva il cap della categoria nascosta, bug B11 dell'audit).
   let totBudget = 0;
   for (const c of CATEGORIES) {
-    if (!c.fixed) totBudget += (cachedCaps[c.id] || 0);
+    if (!c.fixed && !c.hidden) totBudget += (cachedCaps[c.id] || 0);
   }
   const residuo = totBudget - totalVariable;
 
   // HERO (su variabili)
   const heroEl = document.getElementById('hero-residuo');
   const heroSub = document.getElementById('hero-sub');
+  const heroCard = document.querySelector('.hero-card');
+  const heroLabel = document.querySelector('.hero-label');
+  // Etichetta dinamica: dice quale mese si sta guardando (prima diceva sempre
+  // "questo mese" anche navigando ai mesi passati, bug U2 dell'audit).
+  const isCurMonth = (today.getFullYear() === currentMonth.getFullYear() && today.getMonth() === currentMonth.getMonth());
+  if (heroLabel) {
+    heroLabel.textContent = isCurMonth
+      ? 'Budget residuo questo mese (spese variabili)'
+      : 'Budget residuo ' + monthLabel(currentMonth) + ' (spese variabili)';
+  }
   if (totBudget > 0) {
     heroEl.textContent = (residuo >= 0 ? '' : '-') + fmtEUR(Math.abs(residuo)) + ' €';
     heroEl.classList.toggle('hero-negative', residuo < 0);
+    if (heroCard) heroCard.classList.toggle('hero-card-negative', residuo < 0);
     if (residuo < 0) {
       heroSub.textContent = 'Tetto superato di ' + fmtEUR(Math.abs(residuo)) + ' €.';
       heroSub.classList.remove('hidden');
@@ -869,6 +998,7 @@ function renderMonth() {
   } else {
     heroEl.textContent = fmtEUR(totalVariable) + ' €';
     heroEl.classList.remove('hero-negative');
+    if (heroCard) heroCard.classList.remove('hero-card-negative');
     heroSub.textContent = 'Imposta i tetti dal tab Budget per vedere il residuo.';
     heroSub.classList.remove('hidden');
   }
@@ -941,7 +1071,7 @@ function renderMonth() {
 
   // KPI
   document.getElementById('kpi-speso').textContent = fmtEUR(totalVariable) + ' €';
-  document.getElementById('kpi-tetto').textContent = totBudget > 0 ? fmtEUR(totBudget) + ' €' : '—';
+  document.getElementById('kpi-tetto').textContent = totBudget > 0 ? fmtEUR(totBudget) + ' €' : 'n/d';
   document.getElementById('kpi-oggi').textContent = fmtEUR(totalToday) + ' €';
 
   // Categories list: solo variabili visibili
@@ -958,12 +1088,13 @@ function renderMonth() {
       const max = Math.max.apply(null, variableCats.map(vc => totals[vc.id]).concat([1]));
       pct = (speso / max) * 100;
     }
-    const capText = cap > 0 ? '/ ' + fmtEUR(cap) : '(libero)';
+    // Formato pulito: "120,00 € / 300,00 €" oppure "120,00 € (libero)".
+    const capText = cap > 0 ? ' / ' + fmtEUR(cap) + ' €' : ' (libero)';
     return '<div class="cat-row ' + statusClass + '">' +
       '<div class="cat-row-head">' +
       '<span class="cat-dot" style="background:' + c.color + '"></span>' +
       '<span class="cat-name">' + c.name + '</span>' +
-      '<span class="cat-amount">' + fmtEUR(speso) + ' ' + capText + ' €</span>' +
+      '<span class="cat-amount">' + fmtEUR(speso) + ' €' + capText + '</span>' +
       '</div>' +
       '<div class="cat-bar"><div class="cat-bar-fill" style="width:' + pct + '%;background:' + c.color + '"></div></div>' +
       '</div>';
@@ -1036,7 +1167,8 @@ function bindRecurring() {
     const amount = parseFloat(document.getElementById('rec-amount').value);
     const category = document.getElementById('rec-category').value;
     const day = parseInt(document.getElementById('rec-day').value);
-    if (!name || !amount || !category || !day) return;
+    if (!name || !category || !day) { showToast('Compila nome, categoria e giorno.', true); return; }
+    if (!(amount > 0)) { showToast('Inserisci un importo maggiore di zero.', true); return; }
     const recs = loadRecurring();
     const item = { id: uuid(), name: name, amount: amount, category: category, dayOfMonth: day, active: true, lastGeneratedMonth: null, _modTs: Date.now() };
     recs.push(item);
@@ -1175,7 +1307,9 @@ function bindBudget() {
   document.getElementById('save-caps').addEventListener('click', function () {
     const inputs = document.querySelectorAll('.cap-input');
     const values = { ...cachedCaps };
-    inputs.forEach(i => { values[i.dataset.id] = parseFloat(i.value) || 0; });
+    // Math.max(0, ...): un tetto negativo (il bottone e' fuori dal form, il min=0
+    // HTML non viene validato) falserebbe il residuo. Bug B10 dell'audit.
+    inputs.forEach(i => { values[i.dataset.id] = Math.max(0, parseFloat(i.value) || 0); });
     CATEGORIES.forEach(c => { if (c.fixed) values[c.id] = 0; });
     saveCaps(values);
     cachedCaps = values;
@@ -1188,7 +1322,8 @@ function bindBudget() {
     const name = document.getElementById('sink-name').value.trim();
     const amount = parseFloat(document.getElementById('sink-amount').value);
     const note = document.getElementById('sink-note').value.trim();
-    if (!name || !amount) return;
+    if (!name) { showToast('Inserisci un nome.', true); return; }
+    if (!(amount > 0)) { showToast('Inserisci un importo maggiore di zero.', true); return; }
     cachedSinking.push({ id: uuid(), name: name, amount: amount, note: note, _modTs: Date.now() });
     const ok = saveSinking(cachedSinking);
     if (!ok) { showToast('Errore: NON salvato.', true); return; }
@@ -1239,7 +1374,8 @@ function bindIncome() {
     const name = document.getElementById('inc-name').value.trim();
     const amount = parseFloat(document.getElementById('inc-amount').value);
     const note = document.getElementById('inc-note').value.trim();
-    if (!name || !amount) return;
+    if (!name) { showToast('Inserisci un nome.', true); return; }
+    if (!(amount > 0)) { showToast('Inserisci un importo maggiore di zero.', true); return; }
     cachedIncome.push({ id: uuid(), name: name, amount: amount, note: note, _modTs: Date.now() });
     const ok = saveIncome(cachedIncome);
     if (!ok) { showToast('Errore: NON salvato.', true); return; }
@@ -1481,6 +1617,18 @@ function bindFbLogin() {
 }
 
 function initFirebaseAuth(onReady) {
+  // Avvio offline: se gli SDK Firebase non sono disponibili (CDN irraggiungibile
+  // e non ancora in cache), NON bloccare l'app con pagina bianca. Si parte coi
+  // dati locali; il sync ripartira' quando torna la rete. hasPushPending() garantisce
+  // che le modifiche fatte offline vengano spedite al primo boot online.
+  if (typeof firebase === 'undefined' || !firebase.auth) {
+    console.warn('Firebase non disponibile (offline?): avvio in sola lettura locale');
+    setSyncIndicator('warn', 'OFFLINE');
+    // Salta il login gate e va al PIN (o direttamente all'app se gia' sbloccata).
+    if (sessionStorage.getItem('bf_unlocked') === '1') startApp();
+    else showPinScreen();
+    return;
+  }
   firebase.initializeApp(FIREBASE_CONFIG);
   firebase.auth().setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(() => {});
   firebase.auth().onIdTokenChanged(function (user) {
@@ -1522,11 +1670,21 @@ function bindUpdateBanner() {
   btn.addEventListener('click', function () {
     // Flush prima del reload: non perdiamo modifiche locali in coda.
     flushPushSync();
-    // Forza il nuovo SW a prendere il controllo e ricarica.
-    if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+    btn.disabled = true;
+    btn.textContent = 'Aggiorno...';
+    // Manda SKIP_WAITING AL SW IN WAITING (non al controller vecchio, che
+    // ignorerebbe il messaggio: era la causa radice del banner che ricompariva).
+    // L'attivazione del nuovo SW scatena 'controllerchange' -> reload (in index.html).
+    const waiting = window.__swWaiting;
+    if (waiting) {
+      try { waiting.postMessage({ type: 'SKIP_WAITING' }); } catch (e) {}
+    } else if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+      // Fallback raro (riferimento perso): chiede al controller di promuovere.
       try { navigator.serviceWorker.controller.postMessage({ type: 'SKIP_WAITING' }); } catch (e) {}
     }
-    setTimeout(() => window.location.reload(), 200);
+    // Rete di sicurezza: se controllerchange non arriva entro 3s, ricarica comunque.
+    // Non un reload immediato (lascerebbe il SW vecchio al comando e il banner tornerebbe).
+    setTimeout(() => { try { window.location.reload(); } catch (e) {} }, 3000);
   });
 }
 
