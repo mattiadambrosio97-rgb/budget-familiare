@@ -963,13 +963,24 @@ function renderMonth() {
     if (dStr === todayStr) totalToday += m.amount;
   }
 
-  // Tetto su sole variabili VISIBILI: coerente con quadro e lista categorie
-  // (prima la hero includeva il cap della categoria nascosta, bug B11 dell'audit).
+  // Separazione capped vs free: il residuo del hero si calcola SOLO sulle
+  // categorie con tetto > 0. Le libere (regali, palestra, abbigliamento ecc.)
+  // sono spese occasionali a parte e non devono erodere il budget delle
+  // categorie su cui ci si e' dati un limite.
   let totBudget = 0;
+  let totalCapped = 0;
+  let totalFree = 0;
   for (const c of CATEGORIES) {
-    if (!c.fixed && !c.hidden) totBudget += (cachedCaps[c.id] || 0);
+    if (c.fixed || c.hidden) continue;
+    const cap = cachedCaps[c.id] || 0;
+    if (cap > 0) {
+      totBudget += cap;
+      totalCapped += totals[c.id] || 0;
+    } else {
+      totalFree += totals[c.id] || 0;
+    }
   }
-  const residuo = totBudget - totalVariable;
+  const residuo = totBudget - totalCapped;
 
   // HERO (su variabili)
   const heroEl = document.getElementById('hero-residuo');
@@ -1019,6 +1030,35 @@ function renderMonth() {
     heroPace.classList.remove('hidden');
   } else {
     heroPace.classList.add('hidden');
+  }
+
+  // Spese libere (categorie variabili senza tetto): mostrate a parte dal residuo
+  // dei tetti. Cosi' si vede a colpo d'occhio quanto e' uscito in regali,
+  // palestra, abbigliamento senza che eroda il budget delle altre categorie.
+  const freeBox = document.getElementById('free-box');
+  const freeDetails = CATEGORIES.filter(c => !c.fixed && !c.hidden && !(cachedCaps[c.id] > 0))
+    .map(c => ({ c: c, amount: totals[c.id] || 0 }))
+    .filter(x => x.amount > 0);
+  if (freeBox) {
+    if (freeDetails.length > 0) {
+      freeBox.innerHTML =
+        '<div class="fixed-box-head">' +
+          '<div>' +
+            '<div class="fixed-label">Spese libere del mese (senza tetto)</div>' +
+            '<div class="fixed-total">' + fmtEUR(totalFree) + ' €</div>' +
+          '</div>' +
+          '<div class="fixed-toggle" aria-hidden="true">&#9662;</div>' +
+        '</div>' +
+        '<div class="fixed-breakdown">' +
+        freeDetails.map(x =>
+          '<span class="fixed-pill" style="background:' + x.c.color + '">' +
+          escapeHtml(x.c.name) + ': ' + fmtEUR(x.amount) + ' €</span>'
+        ).join('') +
+        '</div>';
+      freeBox.classList.remove('hidden');
+    } else {
+      freeBox.classList.add('hidden');
+    }
   }
 
   // Spese fisse mensili (collapsible: solo totale, click per dettaglio)
@@ -1565,10 +1605,12 @@ async function startApp() {
 }
 
 function bindFixedBox() {
-  const el = document.getElementById('fixed-box');
-  if (!el) return;
-  el.addEventListener('click', function () {
-    el.classList.toggle('fixed-box-expanded');
+  ['fixed-box', 'free-box'].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('click', function () {
+      el.classList.toggle('fixed-box-expanded');
+    });
   });
 }
 
