@@ -4,7 +4,6 @@
 // ============================================================
 
 const STORAGE_PREFIX = 'bf_';
-const PIN = '020597';
 const FB_PATH = '/budget';
 const FB_URL = 'https://agenda-f3298-default-rtdb.europe-west1.firebasedatabase.app' + FB_PATH + '.json';
 const SYNC_KEYS = ['movements', 'recurring', 'caps', 'sinking', 'income'];
@@ -468,7 +467,7 @@ function setupRealtimeSync() {
 
 // Esegue il render di tutte le viste. Separato cosi' da poterlo rimandare.
 function doRenderAll() {
-  if (!document.getElementById('hero-residuo')) return; // ancora dietro il PIN
+  if (!document.getElementById('hero-residuo')) return; // app-container ancora hidden
   try { renderMonth(); } catch (e) {}
   try { renderMovements(); } catch (e) {}
   try { renderRecurring(); } catch (e) {}
@@ -1542,44 +1541,22 @@ function populateCategoryDropdowns() {
 // ============================================================
 // BOOT
 // ============================================================
-function showPinScreen() {
-  document.getElementById('pin-screen').classList.remove('hidden');
-  document.getElementById('app-container').classList.add('hidden');
-  setTimeout(() => {
-    const inp = document.getElementById('pin-input');
-    if (inp) inp.focus();
-  }, 100);
-}
-
 function showApp() {
-  document.getElementById('pin-screen').classList.add('hidden');
   document.getElementById('app-container').classList.remove('hidden');
-}
-
-function bindPin() {
-  document.getElementById('pin-form').addEventListener('submit', function (e) {
-    e.preventDefault();
-    const v = document.getElementById('pin-input').value.trim();
-    if (v === PIN) {
-      sessionStorage.setItem('bf_unlocked', '1');
-      document.getElementById('pin-input').value = '';
-      document.getElementById('pin-error').textContent = '';
-      startApp();
-    } else {
-      document.getElementById('pin-error').textContent = 'PIN errato';
-      document.getElementById('pin-input').value = '';
-    }
-  });
 }
 
 function bindLogout() {
   const btn = document.getElementById('logout-btn');
   if (!btn) return;
   btn.addEventListener('click', function () {
-    if (confirm('Bloccare l\'app?')) {
-      sessionStorage.removeItem('bf_unlocked');
-      showPinScreen();
-    }
+    if (!confirm('Uscire dall\'account? Dovrai rifare login con email e password.')) return;
+    try {
+      // Flush dei push pendenti prima del logout: non lasciamo dati per strada.
+      flushPushSync();
+      if (typeof firebase !== 'undefined' && firebase.auth) {
+        firebase.auth().signOut().catch(() => {});
+      }
+    } catch (e) {}
   });
 }
 
@@ -1635,7 +1612,6 @@ function bindModalBackdrops() {
 // ============================================================
 function showFbLogin() {
   document.getElementById('fb-login-screen').classList.remove('hidden');
-  document.getElementById('pin-screen').classList.add('hidden');
   document.getElementById('app-container').classList.add('hidden');
 }
 
@@ -1646,12 +1622,20 @@ function bindFbLogin() {
     e.preventDefault();
     const email = document.getElementById('fb-email').value.trim();
     const pass = document.getElementById('fb-password').value;
+    const rememberEl = document.getElementById('fb-remember');
+    const remember = rememberEl ? rememberEl.checked : true;
     const errEl = document.getElementById('fb-login-error');
     errEl.textContent = 'Accesso in corso...';
     try {
+      // Persistence va settata PRIMA del signIn. LOCAL = resta loggato anche
+      // dopo chiusura tab/app. SESSION = sparisce alla chiusura.
+      const persistenceMode = remember
+        ? firebase.auth.Auth.Persistence.LOCAL
+        : firebase.auth.Auth.Persistence.SESSION;
+      await firebase.auth().setPersistence(persistenceMode);
       await firebase.auth().signInWithEmailAndPassword(email, pass);
       errEl.textContent = '';
-      // onAuthStateChanged gestisce il passaggio al gate PIN.
+      // onAuthStateChanged gestisce il passaggio diretto all'app.
     } catch (err) {
       errEl.textContent = 'Email o password errati';
     }
@@ -1666,12 +1650,12 @@ function initFirebaseAuth(onReady) {
   if (typeof firebase === 'undefined' || !firebase.auth) {
     console.warn('Firebase non disponibile (offline?): avvio in sola lettura locale');
     setSyncIndicator('warn', 'OFFLINE');
-    // Salta il login gate e va al PIN (o direttamente all'app se gia' sbloccata).
-    if (sessionStorage.getItem('bf_unlocked') === '1') startApp();
-    else showPinScreen();
+    startApp();
     return;
   }
   firebase.initializeApp(FIREBASE_CONFIG);
+  // Default LOCAL: in caso di sessione gia' persistente prima del refactor,
+  // resta tale. Il flag "Ricordami" del form puo' cambiarlo solo al login esplicito.
   firebase.auth().setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(() => {});
   firebase.auth().onIdTokenChanged(function (user) {
     if (user) user.getIdToken().then(t => {
@@ -1693,17 +1677,12 @@ function initFirebaseAuth(onReady) {
 let realtimeStarted = false;
 function afterFbAuth() {
   document.getElementById('fb-login-screen').classList.add('hidden');
-  // Sync real-time parte appena loggato, prima del PIN gate, cosi' lo stato
-  // si allinea anche mentre l'utente digita il PIN.
+  // Sync real-time parte subito dopo login.
   if (!realtimeStarted) {
     setupRealtimeSync();
     realtimeStarted = true;
   }
-  if (sessionStorage.getItem('bf_unlocked') === '1') {
-    startApp();
-  } else {
-    showPinScreen();
-  }
+  startApp();
 }
 
 function bindUpdateBanner() {
@@ -1749,7 +1728,6 @@ function boot() {
   bindFixedBox();
   bindModalBackdrops();
   bindNav();
-  bindPin();
   bindLogout();
   bindUnloadFlush();
   bindFbLogin();

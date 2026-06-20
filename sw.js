@@ -5,7 +5,7 @@
 // - Endpoint dati Firebase (database/auth/identitytoolkit): sempre rete diretta,
 //   mai in cache (sono dati vivi, non asset).
 // Path relativi: l'app vive in sottocartella su GitHub Pages (/budget-familiare/).
-const CACHE_NAME = 'budget-v11';
+const CACHE_NAME = 'budget-v12';
 const ASSETS = ['./', './index.html', './app.js', './styles.css', './manifest.json', './icon.svg', './icon-180.png', './icon-192.png', './icon-512.png'];
 // SDK Firebase serviti da www.gstatic.com: URL versionati e immutabili.
 const FB_SDK = [

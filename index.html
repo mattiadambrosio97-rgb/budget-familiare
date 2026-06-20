@@ -34,24 +34,12 @@
           <span>Password</span>
           <input type="password" id="fb-password" required autocomplete="current-password" />
         </label>
+        <label class="toggle-inline login-remember">
+          <input type="checkbox" id="fb-remember" checked />
+          <span>Ricordami su questo dispositivo</span>
+        </label>
         <button type="submit" class="btn-primary">Accedi</button>
         <p id="fb-login-error" class="error-msg"></p>
-      </form>
-    </div>
-  </section>
-
-  <!-- PIN gate -->
-  <section id="pin-screen" class="screen hidden">
-    <div class="login-container">
-      <div class="login-logo">&euro;</div>
-      <h1>Budget Familiare</h1>
-      <form id="pin-form">
-        <label>
-          <span>PIN</span>
-          <input type="password" id="pin-input" required inputmode="numeric" autocomplete="current-password" maxlength="10" />
-        </label>
-        <button type="submit" class="btn-primary">Entra</button>
-        <p id="pin-error" class="error-msg"></p>
       </form>
     </div>
   </section>
