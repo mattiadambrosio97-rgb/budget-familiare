@@ -95,10 +95,8 @@ const DEFAULT_RECURRING = [
   { id: 'r-disney', name: 'Disney+', amount: 6.99, category: 'abbonamenti', dayOfMonth: 17 },
   { id: 'r-hbo', name: 'HBO Max', amount: 5.99, category: 'abbonamenti', dayOfMonth: 11 },
   { id: 'r-intesa', name: 'Canone conto Intesa', amount: 3.95, category: 'abbonamenti', dayOfMonth: 28 },
-  { id: 'r-gas', name: 'Bombola gas (media)', amount: 45, category: 'casa-gas', dayOfMonth: 15 },
   { id: 'r-signora', name: 'Signora delle pulizie', amount: 64, category: 'casa-pulizia', dayOfMonth: 1 },
-  { id: 'r-barbiere', name: 'Barbiere', amount: 30, category: 'cura-personale', dayOfMonth: 1 },
-  { id: 'r-michcura', name: 'Mich cura di sé', amount: 60, category: 'cura-personale', dayOfMonth: 1 }
+  { id: 'r-barbiere', name: 'Barbiere', amount: 45, category: 'cura-personale', dayOfMonth: 1 }
 ];
 
 const MIN_MONTH = new Date(2026, 4, 1); // maggio 2026 (mese 4 = maggio, 0-indexed)
@@ -1149,6 +1147,10 @@ function renderMovements() {
   let list = cachedMovements.slice();
   if (catFilter) list = list.filter(m => m.category === catFilter);
   if (!showRecurring) list = list.filter(m => !m.isRecurring);
+  const sortEl = document.getElementById('movements-sort');
+  const sortBy = sortEl ? sortEl.value : 'date';
+  if (sortBy === 'amount') list.sort((a, b) => (b.amount || 0) - (a.amount || 0));
+  else list.sort((a, b) => +new Date(b.date) - +new Date(a.date));
   const c = document.getElementById('movements-list');
   if (list.length === 0) {
     c.innerHTML = '<p class="empty-msg">Nessun movimento manuale in questo mese. Spunta "Mostra abbonamenti" per vedere anche i ricorrenti automatici.</p>';
@@ -1177,6 +1179,8 @@ function renderMovements() {
 function bindMovements() {
   document.getElementById('movements-category-filter').addEventListener('change', renderMovements);
   document.getElementById('show-recurring-toggle').addEventListener('change', renderMovements);
+  var sortElBind = document.getElementById('movements-sort');
+  if (sortElBind) sortElBind.addEventListener('change', renderMovements);
   document.getElementById('movements-list').addEventListener('click', function (e) {
     const btn = e.target.closest('.movement-delete');
     if (!btn) return;
