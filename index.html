@@ -55,7 +55,11 @@
 
     <!-- DASHBOARD MESE (schermata principale) -->
     <section id="month-screen" class="screen app-screen active">
-      <button id="top-add-btn" class="top-add-btn">+ Aggiungi spesa</button>
+      <div class="top-actions">
+        <button id="top-add-btn" class="top-add-btn">+ Aggiungi spesa</button>
+        <button id="coda-open-btn" class="top-add-btn top-coda-btn">Da processare</button>
+      </div>
+      <button id="coda-banner" class="coda-banner hidden" type="button"></button>
 
       <div class="hero-card">
         <div class="hero-label">Budget residuo questo mese (spese variabili)</div>
@@ -63,6 +67,8 @@
         <div class="hero-sub" id="hero-sub">&mdash;</div>
         <div class="hero-pace hidden" id="hero-pace"></div>
       </div>
+
+      <div id="money-box" class="quadro-box hidden"></div>
 
       <h3 class="section-title">Per categoria</h3>
       <div class="categories-list" id="categories-list"></div>
@@ -154,6 +160,38 @@
         <button type="submit" class="btn-primary">Aggiungi accantonamento</button>
       </form>
     </section>
+
+    <!-- DIAGNOSI -->
+    <section id="diagnosi-screen" class="screen app-screen">
+      <div class="month-header">
+        <button id="diagnosi-prev" class="month-nav" aria-label="Mese precedente">&lsaquo;</button>
+        <h2 id="diagnosi-month">&mdash;</h2>
+        <button id="diagnosi-next" class="month-nav" aria-label="Mese successivo">&rsaquo;</button>
+      </div>
+      <div id="diagnosi-content"></div>
+    </section>
+
+    <!-- MODAL: Da processare -->
+    <div id="coda-modal" class="modal hidden">
+      <div class="modal-content">
+        <h2>Da processare</h2>
+        <p class="modal-hint">Lascia qui una nota o una foto. Quando Claude è disponibile, digli «processa tutto».</p>
+        <form id="coda-form">
+          <label>
+            <span>Nota</span>
+            <textarea id="coda-testo" rows="2" maxlength="500" placeholder="Es. benzina 50 contanti"></textarea>
+          </label>
+          <label class="coda-foto-label">
+            <span>Foto dello scontrino</span>
+            <input type="file" id="coda-foto" accept="image/*" />
+          </label>
+          <p id="coda-foto-nome" class="modal-hint"></p>
+          <button type="submit" class="btn-primary">Metti in coda</button>
+        </form>
+        <div id="coda-list" class="coda-list"></div>
+        <button type="button" id="coda-close" class="btn-secondary">Chiudi</button>
+      </div>
+    </div>
 
     <!-- MODAL: Aggiungi spesa -->
     <div id="add-modal" class="modal hidden">
@@ -270,6 +308,10 @@
         <span class="nav-icon">&#8635;</span>
         <span class="nav-label">Ricorrenti</span>
       </button>
+      <button data-screen="diagnosi-screen" class="nav-btn">
+        <span class="nav-icon">&#9636;</span>
+        <span class="nav-label">Diagnosi</span>
+      </button>
       <button data-screen="budget-screen" class="nav-btn">
         <span class="nav-icon">&#9881;</span>
         <span class="nav-label">Budget</span>
@@ -282,6 +324,8 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+  <script src="calcoli.js"></script>
+  <script src="coda.js"></script>
   <script src="app.js"></script>
   <script>
     // Service Worker con rilevamento aggiornamenti.

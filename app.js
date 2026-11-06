@@ -7,6 +7,8 @@ const STORAGE_PREFIX = 'bf_';
 const FB_PATH = '/budget';
 const FB_URL = 'https://agenda-f3298-default-rtdb.europe-west1.firebasedatabase.app' + FB_PATH + '.json';
 const SYNC_KEYS = ['movements', 'recurring', 'caps', 'sinking', 'income'];
+// Scritte solo da Claude (budget_dati.py): l'app le riceve e non le rimanda mai.
+const READONLY_KEYS = ['anchor', 'settings', 'incomeItems', 'installments', 'taxPayments'];
 const PUSH_PENDING_KEY = STORAGE_PREFIX + '_pushPending';
 
 // --- Firebase Auth (login una volta per dispositivo, sessione persistente) ---
@@ -220,7 +222,8 @@ function buildPayload() {
   const payload = { _ts: Date.now() };
   for (const k of SYNC_KEYS) {
     const v = lsRead(k, null);
-    payload[k] = v ? JSON.stringify(v) : null;
+    // Una chiave assente qui non deve cancellare quella sul server (il push e' un PATCH).
+    if (v) payload[k] = JSON.stringify(v);
   }
   return payload;
 }
@@ -308,6 +311,13 @@ function applyRemotePayload(remote) {
       } catch (e) {}
     }
   }
+  for (const k of READONLY_KEYS) {
+    if (!remote[k]) continue;
+    try {
+      lsWrite(k, JSON.parse(remote[k]));
+      applied = true;
+    } catch (e) {}
+  }
   return applied;
 }
 
@@ -353,12 +363,22 @@ async function fbPush() {
   markPushPending();   // garantisce retry al prossimo boot se questo fallisce
   setSyncIndicator('syncing');
   try {
-    const payload = buildPayload();
     // Forza refresh del token: evita 401 silenzioso se il token in cache e' scaduto.
     const url = await authedUrl(true);
     if (!idToken) throw new Error('Nessun token disponibile');
+    // Prima unisce quello che c'e' sul server: una spesa scritta da Claude un attimo
+    // fa non deve sparire perche' questo telefono non l'ha ancora ricevuta.
+    const rGet = await fetch(url);
+    if (!rGet.ok) throw new Error('HTTP ' + rGet.status);
+    const remote = await rGet.json();
+    const localTs = parseInt(localStorage.getItem(STORAGE_PREFIX + '_ts') || '0', 10);
+    if (remote && remote._ts > localTs && applyRemotePayload(remote)) {
+      localStorage.setItem(STORAGE_PREFIX + '_ts', String(remote._ts));
+      refreshAllCachesAndRender();
+    }
+    const payload = buildPayload();
     const r = await fetch(url, {
-      method: 'PUT',
+      method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     });
@@ -395,7 +415,7 @@ function flushPushSync() {
   try {
     const payload = JSON.stringify(buildPayload());
     fetch(FB_URL + authParamSync(), {
-      method: 'PUT',
+      method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: payload,
       keepalive: true
@@ -1029,6 +1049,8 @@ function renderMonth() {
     heroPace.classList.add('hidden');
   }
 
+  renderMoneyBox(isCurrentMonth);
+
   // Spese libere (categorie variabili senza tetto): mostrate a parte dal residuo
   // dei tetti. Cosi' si vede a colpo d'occhio quanto e' uscito in regali,
   // palestra, abbigliamento senza che eroda il budget delle altre categorie.
@@ -1136,6 +1158,130 @@ function renderMonth() {
       '<div class="cat-bar"><div class="cat-bar-fill" style="width:' + pct + '%;background:' + c.color + '"></div></div>' +
       '</div>';
   }).join('');
+
+  renderDiagnosi();
+}
+
+// ============================================================
+// SOLDI VERI: numero principale e riquadro, da calcoli.js
+// ============================================================
+function datiCalcolo() {
+  return {
+    movements: loadMovements(),
+    incomeItems: lsRead('incomeItems', []),
+    installments: lsRead('installments', []),
+    taxPayments: lsRead('taxPayments', []),
+    settings: lsRead('settings', {}),
+    anchor: lsRead('anchor', null),
+    caps: cachedCaps,
+    categories: CATEGORIES
+  };
+}
+
+function fmtGiorno(key) {
+  if (!key) return '';
+  const [y, m, d] = key.split('-');
+  return d + '/' + m + '/' + y;
+}
+
+function rigaSoldi(etichetta, valore, classe) {
+  return '<div class="quadro-row' + (classe ? ' ' + classe : '') + '"><span>' + escapeHtml(etichetta) + '</span><strong>' + escapeHtml(valore) + '</strong></div>';
+}
+
+function testoChiusura(c) {
+  return (c.saldo >= 0 ? '+' : '-') + fmtEUR(Math.abs(c.saldo)) + ' €';
+}
+
+function renderMoneyBox(meseCorrente) {
+  const box = document.getElementById('money-box');
+  if (!box) return;
+  if (!meseCorrente) { box.classList.add('hidden'); return; }
+  const m = BudgetCalcoli.metriche(datiCalcolo(), new Date());
+
+  if (m.soldiOra != null) {
+    const heroEl = document.getElementById('hero-residuo');
+    const heroSub = document.getElementById('hero-sub');
+    const heroPace = document.getElementById('hero-pace');
+    const negativo = m.puoiSpendere < 0;
+    document.querySelector('.hero-label').textContent = 'Puoi spendere fino a fine mese';
+    heroEl.textContent = (negativo ? '-' : '') + fmtEUR(Math.abs(m.puoiSpendere)) + ' €';
+    heroEl.classList.toggle('hero-negative', negativo);
+    document.querySelector('.hero-card').classList.toggle('hero-card-negative', negativo);
+    heroSub.textContent = m.limite === 'soldi' ? 'Comandano i soldi che hai davvero.' : 'Comandano i tetti del mese.';
+    heroSub.classList.remove('hidden');
+    if (m.chiusuraOggi) {
+      const gg = m.giorniRestanti === 1 ? '1 giorno' : m.giorniRestanti + ' giorni';
+      heroPace.innerHTML =
+        '<span>Oggi puoi spendere</span>' +
+        '<span class="pace-value">' + fmtEUR(m.chiusuraOggi.quota) + ' €</span>' +
+        '<span class="pace-meta">restano ' + gg + '</span>';
+      heroPace.classList.remove('hidden');
+    }
+  }
+
+  const righe = [];
+  if (m.chiusuraOggi) {
+    righe.push(rigaSoldi('Oggi: speso ' + fmtEUR(m.chiusuraOggi.speso) + ' €', testoChiusura(m.chiusuraOggi), m.chiusuraOggi.saldo < 0 ? 'riga-negativa' : 'riga-positiva'));
+  }
+  if (m.chiusuraIeri) {
+    righe.push(rigaSoldi('Ieri hai chiuso', testoChiusura(m.chiusuraIeri), m.chiusuraIeri.saldo < 0 ? 'riga-negativa' : 'riga-positiva'));
+  }
+  if (m.soldiOra != null) {
+    righe.push(rigaSoldi('Soldi ora', fmtEUR(m.soldiOra) + ' €'));
+    righe.push(rigaSoldi('Impegni del mese', fmtEUR(m.impegniMese) + ' €'));
+    if (m.impegniFuturi > 0) righe.push(rigaSoldi('Rate dei mesi prossimi', fmtEUR(m.impegniFuturi) + ' €'));
+    righe.push(rigaSoldi('Riserva tasse (non spendibile)', fmtEUR(m.riservaTasse) + ' €'));
+    righe.push(rigaSoldi('Con questi soldi arrivi fino al', fmtGiorno(m.autonomiaData)));
+  } else {
+    righe.push('<p class="money-hint">Scrivi a Claude il tuo saldo reale: da quel momento il numero tiene conto dei soldi veri, non solo dei tetti.</p>');
+  }
+  const entrate = [];
+  m.entrateInRitardo.forEach(v => entrate.push(rigaSoldi('In ritardo: ' + v.name + ' (' + fmtGiorno(v.expectedDate) + ')', fmtEUR(v.netto) + ' €', 'riga-negativa')));
+  m.entrateInArrivo.forEach(v => entrate.push(rigaSoldi('In arrivo: ' + v.name + ' (' + fmtGiorno(v.expectedDate) + ')', fmtEUR(v.netto) + ' €')));
+  box.innerHTML =
+    '<div class="quadro-title">I tuoi soldi</div><div class="quadro-rows">' + righe.join('') + '</div>' +
+    (entrate.length ? '<div class="quadro-title money-sub">Entrate non ancora nel conto</div><div class="quadro-rows">' + entrate.join('') + '</div>' : '') +
+    (m.ultimoMovimento ? '<p class="money-hint">Ultimo movimento registrato: ' + escapeHtml(fmtGiorno(m.ultimoMovimento)) + '</p>' : '');
+  box.classList.remove('hidden');
+}
+
+// ============================================================
+// DIAGNOSI
+// ============================================================
+function renderDiagnosi() {
+  const c = document.getElementById('diagnosi-content');
+  if (!c) return;
+  const d = BudgetCalcoli.diagnosi(datiCalcolo(), monthKey(currentMonth));
+  document.getElementById('diagnosi-month').textContent = monthLabel(currentMonth);
+  const sezione = (titolo, righe) => righe.length
+    ? '<div class="quadro-box"><div class="quadro-title">' + escapeHtml(titolo) + '</div><div class="quadro-rows">' + righe.join('') + '</div></div>'
+    : '';
+  const avviso = d.giorniConSpese < 7
+    ? '<p class="money-hint diagnosi-avviso">Spese registrate in ' + d.giorniConSpese + (d.giorniConSpese === 1 ? ' giorno' : ' giorni') + ': i totali sono ancora parziali.</p>'
+    : '';
+  const totali = [
+    rigaSoldi('Totale del mese', fmtEUR(d.totale) + ' €'),
+    rigaSoldi('Spese fisse', fmtEUR(d.fisse) + ' €'),
+    rigaSoldi('Spese variabili', fmtEUR(d.variabili) + ' €'),
+    rigaSoldi('Riferimento mensile', fmtEUR(d.spesaMensileRiferimento) + ' €')
+  ];
+  const categorie = d.categorie.map(x => rigaSoldi(
+    x.name + (x.sforo > 0 ? ' (oltre di ' + fmtEUR(x.sforo) + ' €)' : ''),
+    fmtEUR(x.speso) + ' €' + (x.tetto > 0 ? ' / ' + fmtEUR(x.tetto) + ' €' : ''),
+    x.sforo > 0 ? 'riga-negativa' : ''
+  ));
+  const metodi = d.perMetodo.map(x => rigaSoldi(x.metodo.charAt(0).toUpperCase() + x.metodo.slice(1), fmtEUR(x.importo) + ' €'));
+  const rate = d.acquistiARate.map(r => rigaSoldi(r.name + ' (' + r.count + ' rate)', fmtEUR(r.total) + ' €'));
+  if (d.quoteRate > 0) rate.push(rigaSoldi('Rate pagate o dovute questo mese', fmtEUR(d.quoteRate) + ' €'));
+  const entrate = d.entrateArrivate.map(v => rigaSoldi(v.name + ' (arrivata)', fmtEUR(v.netto) + ' €'))
+    .concat(d.entrateAttese.map(v => rigaSoldi(v.name + ' (attesa)', fmtEUR(v.netto) + ' €')));
+  c.innerHTML = avviso + sezione('Totali', totali) + sezione('Per categoria', categorie) +
+    sezione('Per modo di pagamento', metodi) + sezione('Rate', rate) + sezione('Entrate nette', entrate);
+}
+
+function bindDiagnosi() {
+  document.getElementById('diagnosi-prev').addEventListener('click', () => document.getElementById('prev-month').click());
+  document.getElementById('diagnosi-next').addEventListener('click', () => document.getElementById('next-month').click());
 }
 
 // ============================================================
@@ -1515,7 +1661,8 @@ const screenTitles = {
   'month-screen': 'Dashboard',
   'movements-screen': 'Movimenti',
   'recurring-screen': 'Spese ricorrenti',
-  'budget-screen': 'Budget e accantonamenti'
+  'budget-screen': 'Budget e accantonamenti',
+  'diagnosi-screen': 'Diagnosi'
 };
 
 function bindNav() {
@@ -1583,6 +1730,7 @@ async function startApp() {
   renderCaps();
   renderSinking();
   renderIncome();
+  BudgetCoda.sincronizza();
 }
 
 function bindFixedBox() {
@@ -1600,6 +1748,7 @@ function bindModalBackdrops() {
     ['add-modal', closeAddModal],
     ['edit-recurring-modal', closeEditRecurring],
     ['edit-income-modal', closeEditIncome],
+    ['coda-modal', function () { BudgetCoda.chiudi(); }],
     ['split-modal', function () { document.getElementById('split-modal').classList.add('hidden'); }]
   ];
   for (const [modalId, closeFn] of pairs) {
@@ -1736,6 +1885,8 @@ function boot() {
   bindUnloadFlush();
   bindFbLogin();
   bindUpdateBanner();
+  bindDiagnosi();
+  BudgetCoda.bind();
 
   initFirebaseAuth(afterFbAuth);
 }

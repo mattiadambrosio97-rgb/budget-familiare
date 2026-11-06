@@ -805,3 +805,60 @@ select { appearance: none; -webkit-appearance: none; background-image: url("data
   .kpi-grid-3 { grid-template-columns: repeat(3, 1fr); }
   .hero-value { font-size: 48px; }
 }
+
+/* Azioni in alto, coda e riquadro dei soldi */
+.top-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.top-actions .top-add-btn { white-space: nowrap; padding-left: 8px; padding-right: 8px; }
+.bottom-nav { grid-template-columns: repeat(5, 1fr); }
+.bottom-nav .nav-label { font-size: 9px; letter-spacing: 0; }
+.coda-banner {
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--warn);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elev);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.coda-banner.hidden { display: none; }
+#coda-testo {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elev);
+  color: var(--text);
+  font: inherit;
+  font-size: 16px;
+  resize: vertical;
+}
+#coda-form label { display: block; margin-bottom: 12px; }
+#coda-form label span { display: block; margin-bottom: 4px; font-size: 13px; color: var(--text-muted); }
+#coda-foto { width: 100%; font-size: 14px; color: var(--text); }
+.coda-list { margin: 16px 0; display: flex; flex-direction: column; gap: 8px; }
+.coda-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+}
+.coda-testo { flex: 1; min-width: 0; font-size: 14px; color: var(--text); overflow-wrap: anywhere; }
+.coda-meta { margin-top: 2px; font-size: 12px; color: var(--text-muted); }
+.money-hint { margin-top: 10px; font-size: 12px; line-height: 1.5; color: var(--text-muted); }
+.money-sub { margin-top: 14px; }
+.quadro-row span { min-width: 0; }
+.quadro-row strong { white-space: nowrap; }
+.quadro-row { gap: 10px; }
+.quadro-row.riga-negativa strong { color: var(--danger); }
+.quadro-row.riga-positiva strong { color: var(--primary-dark); }
+.diagnosi-avviso { margin: 0 0 12px; }
+@media (prefers-color-scheme: dark) {
+  .quadro-row.riga-positiva strong { color: var(--primary); }
+}
