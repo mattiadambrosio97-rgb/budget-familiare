@@ -827,25 +827,24 @@ function rigaScadenza(s) {
 
 function htmlCassaforte(c) {
   if (!c) return '<p class="money-hint">Manda a Claude il saldo di Tinaba: l’app lo usa per calcolare la parte libera della cassaforte.</p>';
-  const r = [rigaSoldi('Saldo', euro(c.saldo))];
+  // Prima il conto vero, poi il fondo che non si tocca, poi a cosa servono i soldi rimasti.
+  const r = [rigaSoldi('Conto Tinaba', euro(c.saldoTinaba))];
+  if (c.entrateDaSistemare) r.push(rigaSoldi('+ Entrate arrivate su Fineco (passano col bonifico)', fmtEUR(c.entrateDaSistemare) + ' €'));
+  if (c.speseDaSistemare) r.push(rigaSoldi('− Spese della cassaforte pagate da Fineco', fmtEUR(c.speseDaSistemare) + ' €', 'neg'));
+  r.push(rigaSoldi('− Fondo emergenze (non si tocca)', fmtEUR(c.risparmio) + ' €', 'neg'));
+  r.push(rigaSoldi('= Disponibile in cassaforte', euro(round2(c.saldo - c.risparmio)), 'quadro-margin'));
   r.push(rigaSoldi('− Riserva per l’imposta', fmtEUR(Math.max(c.riservaImposta - c.riservaFinanziata, 0)) + ' €', 'neg'));
   r.push(rigaSoldi('− Scadenze dei prossimi 12 mesi', fmtEUR(c.scadenzeDestinate) + ' €', 'neg'));
-  r.push(rigaSoldi('− Fondo emergenze (non si tocca)', fmtEUR(c.risparmio) + ' €', 'neg'));
   r.push(c.libero >= 0
     ? rigaSoldi('= Libero', euro(c.libero), 'quadro-margin quadro-good')
     : rigaSoldi('= Da coprire con le prossime entrate', fmtEUR(-c.libero) + ' €', 'quadro-margin quadro-arancio'));
   let nota = 'Saldo di Tinaba dichiarato il ' + fmtGiorno(c.dataSaldo) + '.';
-  if (c.libero < 0) nota += ' Le scadenze dei prossimi 12 mesi superano quello che c’è oltre il fondo: le pagano le entrate dei prossimi mesi, che passano qui col bonifico di inizio mese.';
   const r0 = (lsRead('settings', {}).risparmio || {});
   if (r0.mensile) nota += ' Il fondo emergenze cresce di ' + fmtEUR(r0.mensile) + ' € al mese.';
-  if (c.entrateDaSistemare || c.speseDaSistemare) {
-    const parti = [];
-    if (c.entrateDaSistemare) parti.push('+' + fmtEUR(c.entrateDaSistemare) + ' € di entrate');
-    if (c.speseDaSistemare) parti.push('−' + fmtEUR(c.speseDaSistemare) + ' € di spese');
-    nota += ' Comprende ' + parti.join(' e ') + ' che passano col prossimo bonifico.';
-  }
+  if (c.libero < 0) nota += ' Imposta e scadenze superano il disponibile: le pagano le entrate dei prossimi mesi, che arrivano qui col bonifico di inizio mese.';
   return righe(r) + '<p class="money-hint">' + escapeHtml(nota) + '</p>';
 }
+function round2(n) { return Math.round(n * 100) / 100; }
 
 // ============================================================
 // PATRIMONIO: fotografie dei saldi (settings.patrimonio.storico), una per volta che Claude le registra
@@ -900,8 +899,10 @@ function htmlPatrimonio() {
   const crNetto = cr.filter(c => !c.aParte).reduce((a, c) => a + c.netto, 0);
   const aParte = cr.filter(c => c.aParte && c.lordo > 0);
   // Liquidità: quello che puoi usare subito, senza fondo emergenze, azioni e crediti.
-  const qq = BudgetCalcoli.quadro(dati, new Date());
-  const fondo = qq.cassaforte ? qq.cassaforte.risparmio : 0;
+  const rs = (dati.settings || {}).risparmio || {};
+  const [fy, fm] = f.data.slice(0, 7).split('-').map(Number);
+  const mesiFondo = rs.dal ? Math.max(0, (fy - +rs.dal.slice(0, 4)) * 12 + (fm - +rs.dal.slice(5, 7)) + 1) : 0;
+  const fondo = (+rs.base || 0) + (+rs.mensile || 0) * mesiFondo;
   const liquidita = (+f.fineco || 0) + (+f.contanti || 0) + Math.max((+f.tinaba || 0) - fondo, 0);
   const testa = '<div class="pat-liquidita"><span>Liquidità</span><strong>' + escapeHtml(fmtEUR(liquidita) + ' €') + '</strong>' +
     '<p>Conto Fineco, contanti e Tinaba oltre il fondo emergenze, al ' + escapeHtml(fmtGiorno(f.data)) + '. Fuori: fondo, azioni, crediti e la busta dei tuoi sfizi.</p></div>';
@@ -1075,7 +1076,7 @@ function renderComeFunziona() {
   const pct = settings.taxPctDefault != null ? settings.taxPctDefault : 12;
   const testoCassaforte = '<p class="money-hint">La cassaforte tiene da parte il ' + pct +
     '% dell’importo lordo di ogni fattura per l’imposta, i soldi delle scadenze dei prossimi 12 mesi' +
-    (risparmio.mensile ? ' e ' + fmtEUR(risparmio.mensile) + ' € al mese di risparmio' + (risparmio.dal ? ' da ' + monthLabel(dateFromISO(risparmio.dal + '-01')) : '') : '') +
+    (risparmio.base || risparmio.mensile ? ' e il fondo emergenze, che non si tocca: ' + fmtEUR(risparmio.base || 0) + ' € più ' + fmtEUR(risparmio.mensile || 0) + ' € al mese' + (risparmio.dal ? ' da ' + monthLabel(dateFromISO(risparmio.dal + '-01')) : '') : '') +
     '. Salute, auto, veterinario e regali si pagano dalla cassaforte quando capitano: le medie servono solo per orientarsi.</p>';
 
   box.innerHTML =
@@ -1083,9 +1084,9 @@ function renderComeFunziona() {
     riquadro(titoloFisse, righe(righeFisse) + '<p class="money-hint">Una fissa resta fra quelle da pagare finché Claude non registra la spesa effettiva; se in un mese salta, non conta.</p>') +
     riquadro('La cassaforte', (righeMedie.length ? righe(righeMedie) : '') + testoCassaforte) +
     riquadro('Tutte le scadenze', q.scadenze.length ? righe(q.scadenze.map(rigaScadenza)) : '<p class="money-hint">Nessuna scadenza.</p>') +
-    riquadro('Il bonifico di inizio mese', '<p class="money-hint">Il primo del mese manda a Claude il saldo di Fineco e l’importo dei contanti, esclusa la busta dei tuoi sfizi personali. Claude ti indica un solo bonifico: da Tinaba a Fineco se il portafoglio è sotto i ' +
+    riquadro('Il bonifico di inizio mese', '<p class="money-hint">Il primo del mese manda a Claude il saldo di Fineco e l’importo dei contanti, esclusa la busta dei tuoi sfizi personali; per il patrimonio aggiungi il valore delle azioni e quanto c’è nella busta. Claude ti indica un solo bonifico: da Tinaba a Fineco se il portafoglio è sotto i ' +
       fmtEUR(q.portafoglio.mensile) + ' €, da Fineco a Tinaba se è sopra (per esempio perché è arrivata un’entrata). Lo stesso bonifico porta su Fineco i soldi delle scadenze del mese.</p>') +
-    '<p class="money-hint">Le entrate attese (Manlio, ADT, Michelle) non entrano nei conti finché i soldi non arrivano.</p>';
+    '<p class="money-hint">I soldi che ti devono (Manlio, ADT, AM Group) contano nel patrimonio come crediti; nel budget e nella cassaforte entrano solo quando arrivano.</p>';
 }
 
 // ============================================================
