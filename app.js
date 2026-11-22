@@ -1302,7 +1302,8 @@ function renderRecurring() {
     list.innerHTML = '<p class="empty-msg">Nessuna spesa fissa.</p>';
     return;
   }
-  const sorted = cachedRecurring.slice().sort((a, b) => (a.dayOfMonth || 0) - (b.dayOfMonth || 0));
+  // Una colonna: prima le attive, dalla più cara alla più economica.
+  const sorted = cachedRecurring.slice().sort((a, b) => ((b.active !== false) - (a.active !== false)) || ((+b.amount || 0) - (+a.amount || 0)));
   list.innerHTML = sorted.map(rec => {
     const cat = getCategory(rec.category);
     return '<div class="recurring-item ' + (rec.active ? '' : 'inactive') + '" data-id="' + rec.id + '">' +
