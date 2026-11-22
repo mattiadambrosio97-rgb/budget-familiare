@@ -1,12 +1,22 @@
 // Calcoli del Budget: funzioni pure, usate dall'app e, via Node, da budget_dati.py.
-// Una sola fonte per il numero mostrato nell'app e per quello scritto in chat.
+// Una sola fonte per i numeri mostrati nell'app e per quelli scritti in chat.
+//
+// Il sistema (deciso con Mattia il 22/11/2026):
+// - portafoglio Fineco + contanti: 1.370 € al mese per definizione; le spese registrate
+//   si contano contro quel budget (spese libere, spesa e casa, benzina, fisse);
+// - cassaforte Tinaba: tasse, auto, regali, salute, scadenze e risparmio;
+// - il primo del mese un solo bonifico riporta il portafoglio a 1.370 € e finanzia
+//   le scadenze del mese che si apre.
 (function (root, factory) {
   const api = factory();
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.BudgetCalcoli = api;
 })(typeof self !== 'undefined' ? self : this, function () {
-  const TASSA_DEFAULT = 41;
-  const SPESA_MENSILE_DEFAULT = 1700;
+  const TASSA_DEFAULT = 12;
+  const MENSILE_DEFAULT = 1370;
+  const BUDGET_DEFAULT = { 'spesa-casa': 500, 'spese-libere': 400, 'benzina': 120 };
+  const BARRE = ['spesa-casa', 'benzina'];
+  const MESI_SCADENZE = 12;
 
   function pad(n) { return String(n).padStart(2, '0'); }
   // Giorno locale AAAA-MM-GG. Mai toISOString: sposterebbe il giorno vicino alla mezzanotte.
@@ -24,23 +34,45 @@
     const [y, m, d] = key.split('-').map(Number);
     return dayKey(new Date(y, m - 1, d + n, 12));
   }
+  function addMonths(key, n) {
+    const [y, m, d] = key.split('-').map(Number);
+    const ultimo = new Date(y, m - 1 + n + 1, 0).getDate();
+    return dayKey(new Date(y, m - 1 + n, Math.min(d, ultimo), 12));
+  }
   function lastDayOfMonth(key) {
     const [y, m] = key.split('-').map(Number);
     return new Date(y, m, 0).getDate();
   }
+  // Mesi da `dal` a `al` compresi (AAAA-MM); 0 se `al` viene prima.
+  function mesiCompresi(dal, al) {
+    const [y1, m1] = dal.split('-').map(Number);
+    const [y2, m2] = al.split('-').map(Number);
+    return Math.max(0, (y2 - y1) * 12 + (m2 - m1) + 1);
+  }
   function round(n) { return Math.round((n + Number.EPSILON) * 100) / 100; }
+  function num(x) { return Number(x) || 0; }
   function alive(list) { return (list || []).filter(x => x && !x._deleted); }
-  function isCommitted(m) { return !!(m.isRecurring || m.installmentId); }
+  function somma(list, f) { return round(list.reduce((a, x) => a + (f ? f(x) : num(x.amount)), 0)); }
 
-  function dopoAncora(anchor, giorno, registratoTs) {
-    if (!anchor) return false;
-    const giornoAncora = itemDay(anchor.date);
-    if (giorno > giornoAncora) return true;
-    return giorno === giornoAncora && (registratoTs || 0) > (anchor.ts || 0);
+  function gruppi(data) {
+    const g = {};
+    for (const c of data.categories || []) g[c.id] = c.group || 'variabile';
+    return g;
+  }
+  function budgetDi(settings, id) {
+    const b = settings.budget || {};
+    return b[id] != null ? num(b[id]) : (BUDGET_DEFAULT[id] || 0);
+  }
+
+  // Vero se il giorno (con il timestamp di registrazione) viene dopo il riferimento.
+  function dopo(rif, giorno, ts) {
+    if (!rif) return true;
+    if (giorno > rif.date) return true;
+    return giorno === rif.date && (ts || 0) > (rif.ts || 0);
   }
 
   function nettoEntrata(voce, settings) {
-    const lordo = Number(voce.receivedAmount != null ? voce.receivedAmount : voce.gross) || 0;
+    const lordo = num(voce.receivedAmount != null ? voce.receivedAmount : voce.gross);
     const pct = voce.isGross
       ? Number(voce.taxPct != null ? voce.taxPct : (settings.taxPctDefault != null ? settings.taxPctDefault : TASSA_DEFAULT))
       : 0;
@@ -48,229 +80,314 @@
     return { lordo: lordo, tassa: tassa, netto: round(lordo - tassa) };
   }
 
-  // Quote dei fondi attivi fra l'ancora e il giorno D, e quelle ancora da uscire nel mese di D.
-  function fondi(anchor, settings, giornoD, inclusoD) {
-    const out = { usciti: 0, impegni: [] };
-    if (!anchor) return out;
-    const giornoAncora = itemDay(anchor.date);
-    for (const f of alive(settings.funds)) {
-      if (f.active === false) continue;
-      let [y, m] = giornoAncora.split('-').map(Number);
-      const [yD, mD] = giornoD.split('-').map(Number);
-      while (y < yD || (y === yD && m <= mD)) {
-        const mese = y + '-' + pad(m);
-        const giorno = mese + '-' + pad(Math.min(Number(f.dayOfMonth) || 1, lastDayOfMonth(mese + '-01')));
-        if (giorno > giornoAncora) {
-          const uscito = inclusoD ? giorno <= giornoD : giorno < giornoD;
-          if (uscito) out.usciti += Number(f.amount) || 0;
-          else if (mese === monthOf(giornoD)) out.impegni.push({ name: f.name, amount: Number(f.amount) || 0, day: giorno, tipo: 'fondo' });
-        }
-        m++;
-        if (m > 12) { m = 1; y++; }
-      }
-    }
-    return out;
+  // Le spese vere (le previste generate dalle ricorrenti, se ce ne sono, non contano).
+  function spese(data) {
+    return alive(data.movements).filter(m => !m.prevista);
   }
 
-  // Situazione al giorno D. inclusoD=true: conta tutto il giorno D; false: l'inizio del giorno D.
-  function stato(data, giornoD, inclusoD) {
-    const movements = alive(data.movements);
+  // Fisse del mese: ogni ricorrente attiva è prevista finché non arriva la spesa vera
+  // collegata (stesso recurringId nello stesso mese). Una prevista non confermata
+  // decade a fine mese: conta solo nel mese che si sta guardando.
+  function fisseDelMese(data, mese) {
+    const vere = spese(data).filter(m => m.recurringId && monthOf(itemDay(m.date)) === mese);
+    const daUscire = [];
+    const uscite = [];
+    for (const r of alive(data.recurring)) {
+      if (r.active === false) continue;
+      if (r.dal && mese < r.dal) continue;
+      const giorno = mese + '-' + pad(Math.min(Math.max(parseInt(r.dayOfMonth, 10) || 1, 1), lastDayOfMonth(mese + '-01')));
+      const conferma = vere.filter(m => m.recurringId === r.id);
+      const voce = { id: r.id, name: r.name, category: r.category, day: giorno, previsto: num(r.amount) };
+      if (conferma.length) uscite.push(Object.assign(voce, { amount: somma(conferma) }));
+      else daUscire.push(Object.assign(voce, { amount: num(r.amount) }));
+    }
+    const ordina = (a, b) => a.day.localeCompare(b.day);
+    return { daUscire: daUscire.sort(ordina), uscite: uscite.sort(ordina) };
+  }
+
+  function speseLibereAl(data, giorno) {
     const settings = data.settings || {};
-    const anchor = data.anchor || null;
-    const mese = monthOf(giornoD);
-    const categorie = data.categories || [];
-    const entro = g => (inclusoD ? g <= giornoD : g < giornoD);
-
-    let soldi = anchor ? Number(anchor.cash) || 0 : null;
-    let riserva = anchor ? Number(anchor.taxReserve) || 0 : null;
-    const impegni = [];
-    let impegniFuturi = 0;
-    let spesoTetti = 0;
-    const conTetto = new Set(categorie
-      .filter(c => !c.fixed && !c.hidden && Number((data.caps || {})[c.id]) > 0)
-      .map(c => c.id));
-
-    for (const m of movements) {
+    const budget = budgetDi(settings, 'spese-libere');
+    const mese = monthOf(giorno);
+    let prima = 0, quelGiorno = 0, totale = 0;
+    for (const m of spese(data)) {
+      if (m.category !== 'spese-libere') continue;
       const g = itemDay(m.date);
-      const importo = Number(m.amount) || 0;
-      const vincolata = isCommitted(m);
-      if (monthOf(g) === mese && conTetto.has(m.category)) {
-        if (entro(g) || vincolata || inclusoD) spesoTetti += importo;
-      }
-      if (!anchor) continue;
-      if (entro(g)) {
-        if (dopoAncora(anchor, g, m._modTs)) soldi -= importo;
-      } else if (vincolata || inclusoD) {
-        if (monthOf(g) === mese) {
-          impegni.push({ name: m.note || m.category, amount: importo, day: g, tipo: m.installmentId ? 'rata' : (m.isRecurring ? 'fissa' : 'spesa') });
-        } else if (g > giornoD) {
-          impegniFuturi += importo;
-        }
-      }
+      if (monthOf(g) !== mese) continue;
+      const a = num(m.amount);
+      totale += a;
+      if (g < giorno) prima += a;
+      else if (g === giorno) quelGiorno += a;
     }
-
-    if (anchor) {
-      const f = fondi(anchor, settings, giornoD, inclusoD);
-      soldi -= f.usciti;
-      impegni.push.apply(impegni, f.impegni);
-      for (const v of alive(data.incomeItems)) {
-        if (v.status !== 'arrivata') continue;
-        const g = itemDay(v.receivedDate);
-        if (!entro(g) || !dopoAncora(anchor, g, v.recordedTs || v._modTs)) continue;
-        const n = nettoEntrata(v, settings);
-        soldi += n.netto;
-        riserva += n.tassa;
-      }
-      for (const t of alive(data.taxPayments)) {
-        const g = itemDay(t.date);
-        if (entro(g) && dopoAncora(anchor, g, t._modTs)) riserva -= Number(t.amount) || 0;
-      }
-    }
-
-    const totaleTetti = Array.from(conTetto).reduce((a, id) => a + Number(data.caps[id]), 0);
-    const margineTetti = conTetto.size ? round(totaleTetti - spesoTetti) : null;
-    const totaleImpegni = round(impegni.reduce((a, i) => a + i.amount, 0));
-    const margineSoldi = anchor ? round(soldi - totaleImpegni) : null;
-    let puoi = null;
-    let limite = 'nessuno';
-    if (margineSoldi != null && margineTetti != null) {
-      puoi = Math.min(margineSoldi, margineTetti);
-      limite = margineSoldi <= margineTetti ? 'soldi' : 'tetti';
-    } else if (margineSoldi != null) { puoi = margineSoldi; limite = 'soldi'; }
-    else if (margineTetti != null) { puoi = margineTetti; limite = 'tetti'; }
-
+    const giorniRestanti = lastDayOfMonth(giorno) - Number(giorno.slice(8)) + 1;
+    const quota = round(Math.max(budget - prima, 0) / giorniRestanti);
     return {
-      soldiOra: anchor ? round(soldi) : null,
-      riservaTasse: anchor ? round(riserva) : null,
-      impegni: impegni.sort((a, b) => a.day.localeCompare(b.day)),
-      impegniMese: totaleImpegni,
-      impegniFuturi: round(impegniFuturi),
-      margineSoldi: margineSoldi,
-      margineTetti: margineTetti,
-      puoiSpendere: puoi,
-      limite: limite
+      budget: budget, spesoMese: round(totale), spesoPrima: round(prima), spesoGiorno: round(quelGiorno),
+      resto: round(budget - totale), quota: quota, restaGiorno: round(quota - quelGiorno), giorniRestanti: giorniRestanti
     };
   }
 
-  function speseDelGiorno(data, giorno) {
-    const fisse = new Set((data.categories || []).filter(c => c.fixed).map(c => c.id));
-    return round(alive(data.movements)
-      .filter(m => itemDay(m.date) === giorno && !isCommitted(m) && !fisse.has(m.category))
-      .reduce((a, m) => a + (Number(m.amount) || 0), 0));
-  }
-
-  function quotaGiorno(data, giorno) {
-    const inizio = stato(data, giorno, false);
-    if (inizio.puoiSpendere == null) return null;
-    const restanti = lastDayOfMonth(giorno) - Number(giorno.slice(8)) + 1;
-    return round(Math.max(inizio.puoiSpendere, 0) / restanti);
-  }
-
-  function chiusura(data, giorno) {
-    if (data.anchor && giorno < itemDay(data.anchor.date)) return null;
-    const quota = quotaGiorno(data, giorno);
-    if (quota == null) return null;
-    const speso = speseDelGiorno(data, giorno);
-    return { giorno: giorno, quota: quota, speso: speso, saldo: round(quota - speso) };
-  }
-
-  function metriche(data, now) {
-    const oggi = dayKey(now || new Date());
+  // Riserva per l'imposta sostitutiva: base iniziale + quota delle entrate lorde arrivate
+  // dopo la data della base − imposta pagata dopo quella data.
+  function riservaImposta(data, oggi) {
     const settings = data.settings || {};
-    const s = stato(data, oggi, true);
-    const inArrivo = [];
-    const inRitardo = [];
+    const r = settings.riservaImposta || {};
+    const dal = r.data || '0000-00-00';
+    let riserva = num(r.base);
+    for (const v of alive(data.incomeItems)) {
+      if (v.status !== 'arrivata') continue;
+      const g = itemDay(v.receivedDate);
+      if (g < dal || g > oggi) continue;
+      riserva += nettoEntrata(v, settings).tassa;
+    }
+    for (const t of alive(data.taxPayments)) {
+      const g = itemDay(t.date);
+      if (g < dal || g > oggi) continue;
+      riserva -= num(t.amount);
+    }
+    return round(riserva);
+  }
+
+  function importoScadenza(s, riserva) {
+    if (s.daRiserva && (s.amount == null || s.amount === 'riserva')) return round(Math.max(riserva, 0));
+    return num(s.amount);
+  }
+
+  function risparmioAccantonato(settings, mese) {
+    const r = settings.risparmio || {};
+    if (!r.dal) return round(num(r.base));
+    return round(num(r.base) + num(r.mensile) * mesiCompresi(r.dal, mese));
+  }
+
+  // Ultimo momento in cui la cassaforte è stata messa in pari: saldo dichiarato o bonifico.
+  function riferimentoCassaforte(cf) {
+    let rif = { date: itemDay(cf.data), ts: num(cf.ts) };
+    for (const g of alive(cf.giroconti)) {
+      const r = { date: itemDay(g.date), ts: num(g.ts) };
+      if (r.date > rif.date || (r.date === rif.date && r.ts > rif.ts)) rif = r;
+    }
+    return rif;
+  }
+
+  function cassaforte(data, oggi) {
+    const cf = data.cassaforte;
+    if (!cf || cf.saldo == null) return null;
+    const settings = data.settings || {};
+    const gr = gruppi(data);
+    const inizio = { date: itemDay(cf.data), ts: num(cf.ts) };
+    let saldoTinaba = num(cf.saldo);
+    for (const g of alive(cf.giroconti)) {
+      if (!dopo(inizio, itemDay(g.date), g.ts)) continue;
+      saldoTinaba += g.verso === 'tinaba' ? num(g.amount) : -num(g.amount);
+    }
+    // Fra un bonifico e l'altro: le entrate arrivate su Fineco e le spese della cassaforte
+    // pagate col portafoglio passano in cassaforte col prossimo bonifico. Si contano già.
+    const rif = riferimentoCassaforte(cf);
+    const scadenze = alive(data.scadenze);
+    const finanziate = new Set(scadenze.filter(s => s.finanziata).map(s => s.id));
+    let entrate = 0;
+    for (const v of alive(data.incomeItems)) {
+      if (v.status !== 'arrivata') continue;
+      const g = itemDay(v.receivedDate);
+      if (g <= oggi && dopo(rif, g, v.recordedTs || v._modTs)) entrate += nettoEntrata(v, settings).lordo;
+    }
+    let speseCf = 0;
+    for (const m of spese(data)) {
+      if (gr[m.category] !== 'cassaforte') continue;
+      if (m.scadenzaId && finanziate.has(m.scadenzaId)) continue;
+      const g = itemDay(m.date);
+      if (g <= oggi && dopo(rif, g, m._modTs)) speseCf += num(m.amount);
+    }
+    const saldo = round(saldoTinaba + entrate - speseCf);
+
+    const riserva = riservaImposta(data, oggi);
+    let riservaFinanziata = 0;
+    let scadenzeDestinate = 0;
+    const limite = addMonths(oggi, MESI_SCADENZE);
+    for (const s of scadenze) {
+      if (s.pagata) continue;
+      if (s.daRiserva) {
+        if (s.finanziata) riservaFinanziata += num(s.finanziataImporto);
+        continue;
+      }
+      if (s.finanziata) continue;
+      const g = itemDay(s.date);
+      if (g && g > limite) continue;
+      scadenzeDestinate += num(s.amount);
+    }
+    const risparmio = risparmioAccantonato(settings, monthOf(oggi));
+    const destinato = round(Math.max(riserva - riservaFinanziata, 0) + scadenzeDestinate + risparmio);
+    return {
+      saldoDichiarato: num(cf.saldo), dataSaldo: itemDay(cf.data),
+      saldoTinaba: round(saldoTinaba), entrateDaSistemare: round(entrate), speseDaSistemare: round(speseCf),
+      saldo: saldo,
+      riservaImposta: riserva, riservaFinanziata: round(riservaFinanziata),
+      scadenzeDestinate: round(scadenzeDestinate), risparmio: risparmio,
+      destinato: destinato, libero: round(saldo - destinato)
+    };
+  }
+
+  function elencoScadenze(data, oggi) {
+    const riserva = riservaImposta(data, oggi);
+    return alive(data.scadenze)
+      .filter(s => !s.pagata)
+      .map(s => ({
+        id: s.id, name: s.name, category: s.category, date: itemDay(s.date) || null,
+        amount: importoScadenza(s, riserva), daRiserva: !!s.daRiserva, finanziata: !!s.finanziata,
+        scaduta: !!(s.date && itemDay(s.date) < oggi)
+      }))
+      .sort((a, b) => (a.date ? 1 : 0) - (b.date ? 1 : 0) || String(a.date).localeCompare(String(b.date)));
+  }
+
+  function entrateAttese(data, oggi) {
+    const settings = data.settings || {};
+    const inArrivo = [], inRitardo = [];
     for (const v of alive(data.incomeItems)) {
       if (v.status !== 'attesa') continue;
-      const voce = { id: v.id, name: v.name, expectedDate: itemDay(v.expectedDate), netto: nettoEntrata(v, settings).netto, lordo: Number(v.gross) || 0 };
-      (voce.expectedDate < oggi ? inRitardo : inArrivo).push(voce);
+      const n = nettoEntrata(v, settings);
+      const voce = { id: v.id, name: v.name, expectedDate: itemDay(v.expectedDate) || null, lordo: n.lordo, netto: n.netto, isGross: !!v.isGross };
+      (voce.expectedDate && voce.expectedDate < oggi ? inRitardo : inArrivo).push(voce);
     }
-    const ordina = (a, b) => a.expectedDate.localeCompare(b.expectedDate);
-    inArrivo.sort(ordina);
-    inRitardo.sort(ordina);
+    const ordina = (a, b) => (a.expectedDate ? 0 : 1) - (b.expectedDate ? 0 : 1) || String(a.expectedDate).localeCompare(String(b.expectedDate));
+    return { inArrivo: inArrivo.sort(ordina), inRitardo: inRitardo.sort(ordina) };
+  }
 
-    const spesaMensile = Number(settings.autonomyMonthlySpend) || SPESA_MENSILE_DEFAULT;
-    let autonomia = null;
-    if (s.soldiOra != null) {
-      const giorni = s.soldiOra > 0 ? Math.floor(s.soldiOra / (spesaMensile * 12 / 365.25)) : 0;
-      autonomia = addDays(oggi, giorni);
+  function quadro(data, now) {
+    const oggi = dayKey(now || new Date());
+    const mese = monthOf(oggi);
+    const settings = data.settings || {};
+    const gr = gruppi(data);
+    const nomi = {};
+    for (const c of data.categories || []) nomi[c.id] = c.name;
+
+    const sl = speseLibereAl(data, oggi);
+    const ieri = addDays(oggi, -1);
+    let chiusuraIeri = null;
+    if (monthOf(ieri) === mese && (!settings.avvio || ieri >= settings.avvio)) {
+      const s = speseLibereAl(data, ieri);
+      chiusuraIeri = { giorno: ieri, quota: s.quota, speso: s.spesoGiorno, saldo: s.restaGiorno };
     }
-    const reali = alive(data.movements).filter(m => !m.isRecurring).map(m => itemDay(m.date)).filter(g => g <= oggi).sort();
-    return Object.assign({}, s, {
+
+    const delMese = spese(data).filter(m => monthOf(itemDay(m.date)) === mese);
+    const barre = BARRE.map(id => ({
+      id: id, name: nomi[id] || id, budget: budgetDi(settings, id),
+      speso: somma(delMese.filter(m => m.category === id))
+    }));
+
+    const fisse = fisseDelMese(data, mese);
+    const mensile = settings.portafoglio && settings.portafoglio.mensile != null ? num(settings.portafoglio.mensile) : MENSILE_DEFAULT;
+    const spesoPortafoglio = somma(delMese.filter(m => gr[m.category] === 'variabile' || gr[m.category] === 'fissa'));
+    const fisseDaUscire = somma(fisse.daUscire);
+
+    const reali = spese(data).filter(m => !m.isRecurring).map(m => itemDay(m.date)).filter(g => g <= oggi).sort();
+    return {
       oggi: oggi,
-      giorniRestanti: lastDayOfMonth(oggi) - Number(oggi.slice(8)) + 1,
-      chiusuraOggi: chiusura(data, oggi),
-      chiusuraIeri: chiusura(data, addDays(oggi, -1)),
-      autonomiaData: autonomia,
-      spesaMensile: spesaMensile,
-      entrateInArrivo: inArrivo,
-      entrateInRitardo: inRitardo,
+      mese: mese,
+      avvio: settings.avvio || null,
+      primaDellAvvio: !!(settings.avvio && oggi < settings.avvio),
+      speseLibere: {
+        budget: sl.budget, spesoMese: sl.spesoMese, resto: sl.resto, giorniRestanti: sl.giorniRestanti,
+        quotaOggi: sl.quota, spesoOggi: sl.spesoGiorno, restaOggi: sl.restaGiorno, chiusuraIeri: chiusuraIeri
+      },
+      barre: barre,
+      portafoglio: {
+        mensile: mensile, speso: spesoPortafoglio, fisseDaUscire: fisseDaUscire,
+        resto: round(mensile - spesoPortafoglio - fisseDaUscire),
+        fisseDaUscireLista: fisse.daUscire, fisseUscite: fisse.uscite
+      },
+      cassaforte: cassaforte(data, oggi),
+      scadenze: elencoScadenze(data, oggi),
+      entrateAttese: entrateAttese(data, oggi),
       ultimoMovimento: reali.length ? reali[reali.length - 1] : null
-    });
+    };
+  }
+
+  // Bonifico di inizio mese. saldoPortafoglio = Fineco + tutti i contanti.
+  // bonifico = mensile − (saldo − scadenze finanziate e non pagate)
+  //          + scadenze del mese nuovo (anche quelle scadute e non pagate) + imposta del mese.
+  // Positivo: da Tinaba a Fineco. Negativo: da Fineco a Tinaba.
+  function bonificoInizioMese(data, saldoPortafoglio, meseNuovo, now) {
+    const settings = data.settings || {};
+    const oggi = dayKey(now || new Date());
+    const mensile = settings.portafoglio && settings.portafoglio.mensile != null ? num(settings.portafoglio.mensile) : MENSILE_DEFAULT;
+    const scadenze = alive(data.scadenze).filter(s => !s.pagata);
+    const finanziateNonPagate = somma(scadenze.filter(s => s.finanziata), s => num(s.finanziataImporto));
+    const riserva = riservaImposta(data, oggi);
+    const riservaFinanziata = somma(scadenze.filter(s => s.daRiserva && s.finanziata), s => num(s.finanziataImporto));
+    const daFinanziare = [];
+    const imposta = [];
+    for (const s of scadenze) {
+      if (s.finanziata) continue;
+      const g = itemDay(s.date);
+      if (!g || monthOf(g) > meseNuovo) continue;
+      if (s.daRiserva) imposta.push({ id: s.id, name: s.name, date: g, amount: round(Math.max(riserva - riservaFinanziata, 0)) });
+      else daFinanziare.push({ id: s.id, name: s.name, date: g, amount: num(s.amount) });
+    }
+    const saldo = round(num(saldoPortafoglio));
+    const ricarica = round(mensile - (saldo - finanziateNonPagate));
+    const netto = round(ricarica + somma(daFinanziare) + somma(imposta));
+    return {
+      mese: meseNuovo,
+      importo: Math.abs(netto),
+      verso: netto > 0 ? 'fineco' : (netto < 0 ? 'tinaba' : 'nessuno'),
+      netto: netto,
+      dettaglio: {
+        mensile: mensile, saldoPortafoglio: saldo, finanziateNonPagate: finanziateNonPagate,
+        ricarica: ricarica, scadenze: daFinanziare, imposta: imposta
+      }
+    };
   }
 
   function diagnosi(data, mese) {
-    const categorie = data.categories || [];
-    const caps = data.caps || {};
-    const delMese = alive(data.movements).filter(m => monthOf(itemDay(m.date)) === mese);
-    const perCategoria = {};
-    const perMetodo = {};
-    let fisse = 0;
-    let variabili = 0;
+    const settings = data.settings || {};
+    const gr = gruppi(data);
+    const delMese = spese(data).filter(m => monthOf(itemDay(m.date)) === mese);
+    const perCategoria = {}, perMetodo = {};
+    const totali = { variabile: 0, fissa: 0, cassaforte: 0 };
     const giorniRegistrati = new Set();
-    const fisseIds = new Set(categorie.filter(c => c.fixed).map(c => c.id));
     for (const m of delMese) {
-      const importo = Number(m.amount) || 0;
-      perCategoria[m.category] = (perCategoria[m.category] || 0) + importo;
+      const a = num(m.amount);
+      perCategoria[m.category] = (perCategoria[m.category] || 0) + a;
       const metodo = m.method || 'non indicato';
-      perMetodo[metodo] = (perMetodo[metodo] || 0) + importo;
-      if (m.isRecurring || fisseIds.has(m.category)) fisse += importo;
-      else variabili += importo;
-      if (!isCommitted(m)) giorniRegistrati.add(itemDay(m.date));
+      perMetodo[metodo] = (perMetodo[metodo] || 0) + a;
+      totali[gr[m.category] || 'variabile'] += a;
+      if (!m.isRecurring && !m.installmentId) giorniRegistrati.add(itemDay(m.date));
     }
-    const categorieOut = categorie
-      .filter(c => !c.hidden || perCategoria[c.id])
+    const categorie = (data.categories || [])
       .map(c => {
         const speso = round(perCategoria[c.id] || 0);
-        const tetto = c.fixed ? 0 : Number(caps[c.id]) || 0;
-        return { id: c.id, name: c.name, fixed: !!c.fixed, speso: speso, tetto: tetto, sforo: tetto > 0 && speso > tetto ? round(speso - tetto) : 0 };
+        const budget = c.group === 'variabile' ? budgetDi(settings, c.id) : 0;
+        return { id: c.id, name: c.name, group: c.group, speso: speso, budget: budget, sforo: budget > 0 && speso > budget ? round(speso - budget) : 0 };
       })
-      .filter(c => c.speso > 0 || c.tetto > 0)
+      .filter(c => c.speso > 0 || c.budget > 0)
       .sort((a, b) => b.speso - a.speso);
-    const settings = data.settings || {};
-    const arrivate = [];
-    const attese = [];
+    const arrivate = [], attese = [];
     for (const v of alive(data.incomeItems)) {
       if (v.status === 'arrivata' && monthOf(itemDay(v.receivedDate)) === mese) {
         arrivate.push(Object.assign({ name: v.name, day: itemDay(v.receivedDate) }, nettoEntrata(v, settings)));
-      } else if (v.status === 'attesa' && monthOf(itemDay(v.expectedDate)) === mese) {
+      } else if (v.status === 'attesa' && v.expectedDate && monthOf(itemDay(v.expectedDate)) === mese) {
         attese.push(Object.assign({ name: v.name, day: itemDay(v.expectedDate) }, nettoEntrata(v, settings)));
       }
     }
-    const rate = alive(data.installments).filter(r => monthOf(itemDay(r.firstDate)) === mese).map(r => ({
-      name: r.name, total: Number(r.total) || 0, count: r.count, firstDate: itemDay(r.firstDate)
-    }));
-    const quoteRate = delMese.filter(m => m.installmentId).reduce((a, m) => a + (Number(m.amount) || 0), 0);
     return {
       mese: mese,
-      totale: round(fisse + variabili),
-      fisse: round(fisse),
-      variabili: round(variabili),
-      quoteRate: round(quoteRate),
-      categorie: categorieOut,
+      totale: round(totali.variabile + totali.fissa + totali.cassaforte),
+      variabili: round(totali.variabile),
+      fisse: round(totali.fissa),
+      cassaforte: round(totali.cassaforte),
+      portafoglio: { mensile: settings.portafoglio && settings.portafoglio.mensile != null ? num(settings.portafoglio.mensile) : MENSILE_DEFAULT, speso: round(totali.variabile + totali.fissa) },
+      categorie: categorie,
       perMetodo: Object.keys(perMetodo).map(k => ({ metodo: k, importo: round(perMetodo[k]) })).sort((a, b) => b.importo - a.importo),
-      acquistiARate: rate,
       entrateArrivate: arrivate,
       entrateAttese: attese,
-      giorniConSpese: giorniRegistrati.size,
-      spesaMensileRiferimento: Number(settings.autonomyMonthlySpend) || SPESA_MENSILE_DEFAULT
+      giorniConSpese: giorniRegistrati.size
     };
   }
 
-  return { metriche, diagnosi, stato, chiusura, nettoEntrata, dayKey, itemDay };
+  return { quadro, bonificoInizioMese, diagnosi, fisseDelMese, riservaImposta, nettoEntrata, dayKey, itemDay, addMonths };
 });
 
-// Uso da riga di comando: legge {azione, data, now, mese} da stdin e stampa il risultato.
+// Uso da riga di comando: legge {azione, data, now, mese, saldo} da stdin e stampa il risultato.
 if (typeof require !== 'undefined' && typeof module !== 'undefined' && require.main === module) {
   let testo = '';
   process.stdin.setEncoding('utf8');
@@ -279,9 +396,10 @@ if (typeof require !== 'undefined' && typeof module !== 'undefined' && require.m
     const q = JSON.parse(testo);
     const api = module.exports;
     const adesso = q.now ? new Date(q.now) : new Date();
-    const r = q.azione === 'diagnosi'
-      ? api.diagnosi(q.data, q.mese || api.dayKey(adesso).slice(0, 7))
-      : api.metriche(q.data, adesso);
+    let r;
+    if (q.azione === 'diagnosi') r = api.diagnosi(q.data, q.mese || api.dayKey(adesso).slice(0, 7));
+    else if (q.azione === 'bonifico') r = api.bonificoInizioMese(q.data, q.saldo, q.mese || api.dayKey(adesso).slice(0, 7), adesso);
+    else r = api.quadro(q.data, adesso);
     process.stdout.write(JSON.stringify(r));
   });
 }

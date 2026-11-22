@@ -3,195 +3,178 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
-const { metriche, diagnosi, chiusura } = createRequire(import.meta.url)('../calcoli.js');
+const { quadro, bonificoInizioMese, diagnosi } = createRequire(import.meta.url)('../calcoli.js');
 
 const categories = [
-  { id: 'spesa-casa', name: 'Spesa', fixed: false },
-  { id: 'sfizi', name: 'Sfizi', fixed: false },
-  { id: 'regali', name: 'Regali', fixed: false },
-  { id: 'abbonamenti', name: 'Abbonamenti', fixed: true }
+  { id: 'spesa-casa', name: 'Spesa e casa', group: 'variabile' },
+  { id: 'spese-libere', name: 'Spese libere', group: 'variabile' },
+  { id: 'benzina', name: 'Benzina', group: 'variabile' },
+  { id: 'abbonamenti', name: 'Abbonamenti', group: 'fissa' },
+  { id: 'casa-pulizia', name: 'Signora delle pulizie', group: 'fissa' },
+  { id: 'salute', name: 'Salute', group: 'cassaforte' },
+  { id: 'tasse', name: 'Tasse', group: 'cassaforte' },
+  { id: 'auto', name: 'Auto', group: 'cassaforte' }
 ];
-const caps = { 'spesa-casa': 500, sfizi: 300, regali: 0, abbonamenti: 100, _t: { sfizi: 1 } };
-const ADESSO = new Date(2026, 10, 20, 15, 0);
-const anchor = { date: '2026-11-10', ts: new Date(2026, 10, 10, 18).getTime(), cash: 2000, taxReserve: 100 };
-const base = o => Object.assign({ categories, caps, anchor, movements: [], incomeItems: [], taxPayments: [], installments: [], settings: { taxPctDefault: 41 } }, o);
-const spesa = (date, amount, extra) => Object.assign({ id: date + amount, date, amount, category: 'sfizi', _modTs: new Date(date + 'T12:00').getTime() }, extra);
+const settings = {
+  portafoglio: { mensile: 1370 },
+  budget: { 'spesa-casa': 500, 'spese-libere': 400, benzina: 120 },
+  taxPctDefault: 12,
+  riservaImposta: { base: 355, data: '2026-11-22' },
+  risparmio: { mensile: 200, dal: '2026-12', base: 0 }
+};
+const recurring = [
+  { id: 'r-netflix', name: 'Netflix', amount: 6.99, category: 'abbonamenti', dayOfMonth: 25, active: true },
+  { id: 'r-signora', name: 'Signora', amount: 70, category: 'casa-pulizia', dayOfMonth: 1, active: true }
+];
+const cassaforte = { saldo: 10000, data: '2026-11-22', ts: new Date(2026, 10, 22, 12).getTime(), giroconti: [] };
+const base = o => Object.assign({ categories, settings, recurring, cassaforte, movements: [], incomeItems: [], taxPayments: [], scadenze: [] }, o);
+const spesa = (date, amount, category, extra) => Object.assign({ id: date + amount + category, date, amount, category: category || 'spese-libere', _modTs: new Date(date + 'T12:00').getTime() }, extra);
+const giorno = (y, m, d) => new Date(y, m - 1, d, 15, 0);
 
-test('entrata lorda: va nei soldi al netto e la quota nella riserva', () => {
-  const m = metriche(base({ incomeItems: [{ id: 'a', status: 'arrivata', gross: 1700, isGross: true, receivedDate: '2026-11-15', recordedTs: new Date(2026, 10, 15, 9).getTime() }] }), ADESSO);
-  assert.equal(m.soldiOra, 3003);
-  assert.equal(m.riservaTasse, 797);
+test('quota giornaliera a inizio, metà e fine mese', () => {
+  assert.equal(quadro(base({}), giorno(2026, 12, 1)).speseLibere.quotaOggi, 12.9); // 400 / 31
+  const meta = quadro(base({ movements: [spesa('2026-12-05', 100)] }), giorno(2026, 12, 16));
+  assert.equal(meta.speseLibere.quotaOggi, 18.75); // 300 / 16
+  const fine = quadro(base({ movements: [spesa('2026-12-05', 380)] }), giorno(2026, 12, 31));
+  assert.equal(fine.speseLibere.quotaOggi, 20);
 });
 
-test('entrata netta: resta intera', () => {
-  const m = metriche(base({ incomeItems: [{ id: 'a', status: 'arrivata', gross: 500, isGross: false, receivedDate: '2026-11-15' , recordedTs: 1 }] }), ADESSO);
-  assert.equal(m.soldiOra, 2500);
-  assert.equal(m.riservaTasse, 100);
+test('spesa che sfora le spese libere: quota zero e resto negativo', () => {
+  const q = quadro(base({ movements: [spesa('2026-12-03', 450)] }), giorno(2026, 12, 10));
+  assert.equal(q.speseLibere.quotaOggi, 0);
+  assert.equal(q.speseLibere.resto, -50);
 });
 
-test('entrata attesa in ritardo: non cambia i numeri e risulta in ritardo', () => {
-  const senza = metriche(base({}), ADESSO);
-  const m = metriche(base({ incomeItems: [{ id: 'a', status: 'attesa', gross: 1700, isGross: true, expectedDate: '2026-11-15' }] }), ADESSO);
-  assert.equal(m.puoiSpendere, senza.puoiSpendere);
-  assert.equal(m.entrateInRitardo.length, 1);
-  assert.equal(m.entrateInRitardo[0].netto, 1003);
-  assert.equal(m.entrateInArrivo.length, 0);
+test('spesa di oggi abbassa restaOggi ma non la quota', () => {
+  const q = quadro(base({ movements: [spesa('2026-12-01', 10)] }), giorno(2026, 12, 1));
+  assert.equal(q.speseLibere.quotaOggi, 12.9);
+  assert.equal(q.speseLibere.restaOggi, 2.9);
+  assert.equal(q.speseLibere.resto, 390);
 });
 
-test('ritardo dal 15 al 18: conta solo dal giorno di arrivo', () => {
-  const voce = { id: 'a', status: 'arrivata', gross: 1000, isGross: false, receivedDate: '2026-11-18', recordedTs: 1, expectedDate: '2026-11-15' };
-  assert.equal(metriche(base({ incomeItems: [voce] }), new Date(2026, 10, 17, 12)).soldiOra, 2000);
-  assert.equal(metriche(base({ incomeItems: [voce] }), new Date(2026, 10, 18, 12)).soldiOra, 3000);
+test('chiusura di ieri: quota meno speso', () => {
+  const q = quadro(base({ movements: [spesa('2026-12-01', 20)] }), giorno(2026, 12, 2));
+  assert.deepEqual(q.speseLibere.chiusuraIeri, { giorno: '2026-12-01', quota: 12.9, speso: 20, saldo: -7.1 });
 });
 
-test('entrata spostata al mese dopo: resta in arrivo', () => {
-  const m = metriche(base({ incomeItems: [{ id: 'a', status: 'attesa', gross: 500, isGross: false, expectedDate: '2026-12-15' }] }), ADESSO);
-  assert.equal(m.entrateInArrivo[0].expectedDate, '2026-12-15');
-  assert.equal(m.soldiOra, 2000);
+test('prevista non confermata: conta fra le fisse da uscire, non fra le spese', () => {
+  const q = quadro(base({}), giorno(2026, 12, 10));
+  assert.equal(q.portafoglio.fisseDaUscire, 76.99);
+  assert.equal(q.portafoglio.speso, 0);
+  assert.equal(q.portafoglio.resto, 1293.01);
 });
 
-test('soldi alti e tetti bassi: comanda il tetto', () => {
-  const m = metriche(base({ movements: [spesa('2026-11-12', 700)] }), ADESSO);
-  assert.equal(m.margineTetti, 100);
-  assert.equal(m.margineSoldi, 1300);
-  assert.equal(m.puoiSpendere, 100);
-  assert.equal(m.limite, 'tetti');
+test('prevista confermata: conta una volta sola, con l’importo vero', () => {
+  const q = quadro(base({ movements: [spesa('2026-12-02', 65, 'casa-pulizia', { recurringId: 'r-signora' })] }), giorno(2026, 12, 10));
+  assert.equal(q.portafoglio.fisseDaUscire, 6.99);
+  assert.equal(q.portafoglio.speso, 65);
+  assert.equal(q.portafoglio.resto, 1298.01);
+  assert.equal(q.portafoglio.fisseUscite[0].amount, 65);
 });
 
-test('tetti alti e soldi bassi: comandano i soldi', () => {
-  const m = metriche(base({ anchor: Object.assign({}, anchor, { cash: 200 }) }), ADESSO);
-  assert.equal(m.puoiSpendere, 200);
-  assert.equal(m.limite, 'soldi');
+test('prevista decaduta: il mese dopo non conta più', () => {
+  const dic = quadro(base({}), giorno(2026, 12, 31));
+  assert.equal(dic.portafoglio.fisseDaUscire, 76.99);
+  const d = diagnosi(base({}), '2026-12');
+  assert.equal(d.fisse, 0); // la signora saltata non è una spesa
+  const gen = quadro(base({ movements: [spesa('2027-01-01', 70, 'casa-pulizia', { recurringId: 'r-signora' })] }), giorno(2027, 1, 5));
+  assert.equal(gen.portafoglio.speso, 70);
+  assert.equal(gen.portafoglio.fisseDaUscire, 6.99);
 });
 
-test('spesa senza tetto: toglie dai soldi, non dai tetti', () => {
-  const m = metriche(base({ movements: [spesa('2026-11-12', 150, { category: 'regali' })] }), ADESSO);
-  assert.equal(m.soldiOra, 1850);
-  assert.equal(m.margineTetti, 800);
-});
-
-test('rata a cavallo di mese: pesa nel suo mese, le future negli impegni', () => {
-  const rate = [
-    spesa('2026-11-12', 50, { id: 'r:1', installmentId: 'r', category: 'regali' }),
-    spesa('2026-11-28', 50, { id: 'r:2', installmentId: 'r', category: 'regali' }),
-    spesa('2026-12-12', 50, { id: 'r:3', installmentId: 'r', category: 'regali' })
+test('cassaforte: riserva, scadenze nel destinato, risparmio, libero', () => {
+  const scadenze = [
+    { id: 'inps', name: 'INPS', amount: 1152.93, date: '2027-02-16', category: 'tasse' },
+    { id: 'bollo', name: 'Bollo', amount: 174.39, date: null, category: 'auto' },
+    { id: 'lontana', name: 'Fra più di un anno', amount: 999, date: '2028-06-01', category: 'auto' },
+    { id: 'imposta', name: 'Imposta', amount: null, date: '2027-06-30', category: 'tasse', daRiserva: true }
   ];
-  const m = metriche(base({ movements: rate }), ADESSO);
-  assert.equal(m.soldiOra, 1950);
-  assert.equal(m.impegniMese, 50);
-  assert.equal(m.margineSoldi, 1900);
-  assert.equal(m.impegniFuturi, 50);
+  const c = quadro(base({ scadenze }), giorno(2026, 12, 10)).cassaforte;
+  assert.equal(c.riservaImposta, 355);
+  assert.equal(c.risparmio, 200);
+  assert.equal(c.destinato, 1882.32); // 355 + 1152,93 + 174,39 + 200
+  assert.equal(c.libero, 8117.68);
+  const feb = quadro(base({ scadenze }), giorno(2027, 2, 1)).cassaforte;
+  assert.equal(feb.risparmio, 600);
 });
 
-test('ricorrente maturata e futura', () => {
-  const ricorrenti = [
-    spesa('2026-11-15', 21, { id: 'a:2026-11', isRecurring: true, category: 'abbonamenti' }),
-    spesa('2026-11-25', 7, { id: 'b:2026-11', isRecurring: true, category: 'abbonamenti' })
-  ];
-  const m = metriche(base({ movements: ricorrenti }), ADESSO);
-  assert.equal(m.soldiOra, 1979);
-  assert.equal(m.impegniMese, 7);
-  assert.equal(m.margineSoldi, 1972);
+test('scadenza finanziata: esce dal destinato', () => {
+  const scadenze = [{ id: 'inps', name: 'INPS', amount: 1152.93, date: '2027-02-16', category: 'tasse', finanziata: true, finanziataImporto: 1152.93 }];
+  const c = quadro(base({ scadenze }), giorno(2027, 2, 3)).cassaforte;
+  assert.equal(c.scadenzeDestinate, 0);
 });
 
-test('cambio mese: i tetti ripartono, i soldi restano', () => {
-  const m = metriche(base({ movements: [spesa('2026-11-12', 700)] }), new Date(2026, 11, 1, 10));
-  assert.equal(m.margineTetti, 800);
-  assert.equal(m.soldiOra, 1300);
+test('entrata lorda: 12% nella riserva, entra in cassaforte fino al bonifico', () => {
+  const incomeItems = [{ id: 'm', name: 'Manlio', status: 'arrivata', gross: 3000, isGross: true, receivedDate: '2026-12-15', recordedTs: new Date(2026, 11, 15, 10).getTime() }];
+  const c = quadro(base({ incomeItems }), giorno(2026, 12, 20)).cassaforte;
+  assert.equal(c.riservaImposta, 715);
+  assert.equal(c.entrateDaSistemare, 3000);
+  assert.equal(c.saldo, 13000);
 });
 
-test('movimenti prima dell\'ancora: fuori dal saldo, dentro la diagnosi', () => {
-  const dati = base({ movements: [spesa('2026-06-12', 700)] });
-  assert.equal(metriche(dati, ADESSO).soldiOra, 2000);
-  assert.equal(diagnosi(dati, '2026-06').totale, 700);
+test('spesa della cassaforte pagata col portafoglio: scende subito il saldo', () => {
+  const c = quadro(base({ movements: [spesa('2026-12-05', 80, 'salute')] }), giorno(2026, 12, 6)).cassaforte;
+  assert.equal(c.speseDaSistemare, 80);
+  assert.equal(c.saldo, 9920);
 });
 
-test('spesa del giorno dell\'ancora: conta solo se registrata dopo', () => {
-  const prima = spesa('2026-11-10', 10, { id: 'p', _modTs: anchor.ts - 1000 });
-  const dopo = spesa('2026-11-10', 20, { id: 'd', _modTs: anchor.ts + 1000 });
-  assert.equal(metriche(base({ movements: [prima, dopo] }), ADESSO).soldiOra, 1980);
+test('entrata attesa: non cambia nessun numero', () => {
+  const senza = quadro(base({}), giorno(2026, 12, 10));
+  const con = quadro(base({ incomeItems: [{ id: 'a', name: 'ADT', status: 'attesa', gross: 3120, expectedDate: null }, { id: 'b', name: 'AM', status: 'attesa', gross: 500, expectedDate: '2026-12-05' }] }), giorno(2026, 12, 10));
+  assert.deepEqual(con.speseLibere, senza.speseLibere);
+  assert.deepEqual(con.portafoglio, senza.portafoglio);
+  assert.deepEqual(con.cassaforte, senza.cassaforte);
+  assert.equal(con.entrateAttese.inRitardo.length, 1);
+  assert.equal(con.entrateAttese.inArrivo[0].name, 'ADT');
 });
 
-test('spesa inserita dopo ma datata prima dell\'ancora: già nel saldo', () => {
-  const m = spesa('2026-11-05', 40, { _modTs: anchor.ts + 1000 });
-  assert.equal(metriche(base({ movements: [m] }), ADESSO).soldiOra, 2000);
+test('bonifico positivo: portafoglio sotto i 1.370 €', () => {
+  const b = bonificoInizioMese(base({}), 900, '2026-12', giorno(2026, 12, 1));
+  assert.equal(b.netto, 470);
+  assert.equal(b.verso, 'fineco');
 });
 
-test('voci cancellate: ignorate', () => {
-  const dati = base({
-    movements: [spesa('2026-11-12', 100, { _deleted: true })],
-    incomeItems: [{ id: 'a', _deleted: true, status: 'arrivata', gross: 1, receivedDate: '2026-11-12', recordedTs: 1 }]
-  });
-  assert.equal(metriche(dati, ADESSO).soldiOra, 2000);
+test('bonifico negativo: portafoglio sopra i 1.370 € (entrate arrivate su Fineco)', () => {
+  const b = bonificoInizioMese(base({}), 2000, '2026-12', giorno(2026, 12, 1));
+  assert.equal(b.importo, 630);
+  assert.equal(b.verso, 'tinaba');
 });
 
-test('entrata annullata: non compare', () => {
-  const m = metriche(base({ incomeItems: [{ id: 'a', status: 'annullata', gross: 100, expectedDate: '2026-11-25' }] }), ADESSO);
-  assert.equal(m.entrateInArrivo.length, 0);
+test('bonifico con scadenza nel mese nuovo', () => {
+  const scadenze = [{ id: 'paypal', name: 'PayPal', amount: 129.49, date: '2026-12-28', category: 'auto' }, { id: 'inps', name: 'INPS', amount: 1152.93, date: '2027-02-16', category: 'tasse' }];
+  const b = bonificoInizioMese(base({ scadenze }), 1370, '2026-12', giorno(2026, 12, 1));
+  assert.equal(b.netto, 129.49);
+  assert.equal(b.dettaglio.scadenze.length, 1);
 });
 
-test('pagamento tasse: scende la riserva, non i soldi spendibili', () => {
-  const m = metriche(base({ taxPayments: [{ id: 't', date: '2026-11-15', amount: 60, _modTs: 1 }] }), ADESSO);
-  assert.equal(m.riservaTasse, 40);
-  assert.equal(m.soldiOra, 2000);
+test('bonifico con scadenza finanziata ma non ancora pagata: i soldi restano su Fineco', () => {
+  const scadenze = [{ id: 'inps', name: 'INPS', amount: 1152.93, date: '2027-02-16', category: 'tasse', finanziata: true, finanziataImporto: 1152.93 }];
+  const b = bonificoInizioMese(base({ scadenze }), 2522.93, '2027-02', giorno(2027, 2, 10));
+  assert.equal(b.netto, 0);
 });
 
-test('fondi attivi: impegno prima del giorno, uscita dopo; quelli spenti no', () => {
-  const settings = { funds: [{ id: 'f', name: 'Auto', amount: 75, dayOfMonth: 25 }, { id: 's', name: 'Salvadanaio', amount: 200, dayOfMonth: 25, active: false }] };
-  const prima = metriche(base({ settings }), ADESSO);
-  assert.equal(prima.soldiOra, 2000);
-  assert.equal(prima.impegniMese, 75);
-  const dopo = metriche(base({ settings }), new Date(2026, 10, 26, 10));
-  assert.equal(dopo.soldiOra, 1925);
-  assert.equal(dopo.impegniMese, 0);
+test('bonifico con versamento dell’imposta: dalla riserva, poi esce dal destinato', () => {
+  const scadenze = [{ id: 'imposta', name: 'Imposta', amount: null, date: '2027-06-30', category: 'tasse', daRiserva: true }];
+  const b = bonificoInizioMese(base({ scadenze }), 1370, '2027-06', giorno(2027, 6, 1));
+  assert.equal(b.netto, 355);
+  assert.equal(b.dettaglio.imposta[0].amount, 355);
+  const finanziata = [{ ...scadenze[0], finanziata: true, finanziataImporto: 355 }];
+  const c = quadro(base({ scadenze: finanziata }), giorno(2027, 6, 2)).cassaforte;
+  assert.equal(c.riservaFinanziata, 355);
+  assert.equal(c.destinato, 1400); // solo il risparmio: 7 mesi × 200
 });
 
-test('senza ancora: resta il conto sui tetti e i soldi sono assenti', () => {
-  const m = metriche(base({ anchor: null, movements: [spesa('2026-11-12', 100)] }), ADESSO);
-  assert.equal(m.soldiOra, null);
-  assert.equal(m.puoiSpendere, 700);
-  assert.equal(m.limite, 'tetti');
-  assert.equal(m.autonomiaData, null);
+test('diagnosi: totali per gruppo e budget', () => {
+  const d = diagnosi(base({ movements: [spesa('2026-12-02', 450), spesa('2026-12-03', 52, 'spesa-casa'), spesa('2026-12-04', 80, 'salute'), spesa('2026-12-25', 6.99, 'abbonamenti', { recurringId: 'r-netflix' })] }), '2026-12');
+  assert.equal(d.variabili, 502);
+  assert.equal(d.fisse, 6.99);
+  assert.equal(d.cassaforte, 80);
+  assert.equal(d.categorie.find(c => c.id === 'spese-libere').sforo, 50);
+  assert.equal(d.giorniConSpese, 4);
 });
 
-test('chiusura: quota del giorno meno le spese del giorno, fisse escluse', () => {
-  const dati = base({ movements: [
-    spesa('2026-11-20', 30),
-    spesa('2026-11-20', 21, { id: 'x', isRecurring: true, category: 'abbonamenti' })
-  ] });
-  const c = chiusura(dati, '2026-11-20');
-  // Tetti 800 meno 21 di fissa non pesano sui tetti; soldi 2000 meno 21; comanda il tetto: 800 / 11 giorni.
-  assert.equal(c.quota, 72.73);
-  assert.equal(c.speso, 30);
-  assert.equal(c.saldo, 42.73);
-});
-
-test('chiusura prima dell\'ancora: non disponibile', () => {
-  assert.equal(chiusura(base({}), '2026-11-05'), null);
-});
-
-test('autonomia: soldi divisi per la spesa giornaliera di riferimento', () => {
-  const m = metriche(base({ settings: { autonomyMonthlySpend: 1700 } }), ADESSO);
-  assert.equal(m.autonomiaData, '2026-12-25');
-});
-
-test('diagnosi: categorie, sforo, metodo e costo intero delle rate senza doppio conteggio', () => {
-  const dati = base({
-    movements: [
-      spesa('2026-11-12', 350, { method: 'carta' }),
-      spesa('2026-11-13', 50, { id: 'r:1', installmentId: 'r', category: 'regali', method: 'carta' }),
-      spesa('2026-11-15', 21, { id: 'f', isRecurring: true, category: 'abbonamenti' }),
-      spesa('2026-11-16', 10, { method: 'contanti', _deleted: true })
-    ],
-    installments: [{ id: 'r', name: 'Scarpe', total: 150, count: 3, firstDate: '2026-11-13' }],
-    caps: Object.assign({}, caps, { sfizi: 300 })
-  });
-  const d = diagnosi(dati, '2026-11');
-  assert.equal(d.totale, 421);
-  assert.equal(d.fisse, 21);
-  assert.equal(d.quoteRate, 50);
-  assert.equal(d.acquistiARate[0].total, 150);
-  assert.equal(d.categorie.find(c => c.id === 'sfizi').sforo, 50);
-  assert.equal(d.perMetodo[0].metodo, 'carta');
-  assert.equal(d.giorniConSpese, 1);
+test('avvio: prima del 1/12 il quadro lo segnala', () => {
+  const q = quadro(base({ settings: { ...settings, avvio: '2026-12-01' } }), giorno(2026, 11, 22));
+  assert.equal(q.primaDellAvvio, true);
+  assert.equal(q.speseLibere.chiusuraIeri, null);
 });

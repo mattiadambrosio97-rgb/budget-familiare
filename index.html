@@ -46,7 +46,7 @@
 
   <main id="app-container" class="hidden">
     <header class="app-header">
-      <div class="header-title" id="header-title">Dashboard</div>
+      <div class="header-title" id="header-title">Budget</div>
       <div id="sync-indicator" class="sync-indicator sync-syncing" title="Stato sincronizzazione">
         <span class="sync-dot"></span>
         <span id="sync-text" class="sync-text">...</span>
@@ -62,46 +62,22 @@
       <button id="coda-banner" class="coda-banner hidden" type="button"></button>
 
       <div class="hero-card">
-        <div class="hero-label">Budget residuo questo mese (spese variabili)</div>
+        <div class="hero-label" id="hero-label">Oggi puoi spendere</div>
         <div class="hero-value" id="hero-residuo">&mdash;</div>
         <div class="hero-sub" id="hero-sub">&mdash;</div>
         <div class="hero-pace hidden" id="hero-pace"></div>
       </div>
 
-      <div id="money-box" class="quadro-box hidden"></div>
+      <div id="home-content"></div>
+    </section>
 
-      <h3 class="section-title">Per categoria</h3>
-      <div class="categories-list" id="categories-list"></div>
-
-      <div id="fixed-box" class="fixed-box hidden"></div>
-      <div id="free-box" class="fixed-box hidden"></div>
-
-      <div id="quadro-box" class="quadro-box hidden"></div>
-
+    <!-- MOVIMENTI -->
+    <section id="movements-screen" class="screen app-screen">
       <div class="month-header">
         <button id="prev-month" class="month-nav" aria-label="Mese precedente">&lsaquo;</button>
         <h2 id="month-label">&mdash;</h2>
         <button id="next-month" class="month-nav" aria-label="Mese successivo">&rsaquo;</button>
       </div>
-
-      <div class="kpi-grid kpi-grid-3">
-        <div class="kpi-card">
-          <div class="kpi-label">Speso</div>
-          <div class="kpi-value" id="kpi-speso">0,00 &euro;</div>
-        </div>
-        <div class="kpi-card">
-          <div class="kpi-label">Tetto totale</div>
-          <div class="kpi-value" id="kpi-tetto">&mdash;</div>
-        </div>
-        <div class="kpi-card">
-          <div class="kpi-label">Speso oggi</div>
-          <div class="kpi-value" id="kpi-oggi">0,00 &euro;</div>
-        </div>
-      </div>
-    </section>
-
-    <!-- MOVIMENTI -->
-    <section id="movements-screen" class="screen app-screen">
       <div class="movements-filters">
         <select id="movements-category-filter">
           <option value="">Tutte le categorie</option>
@@ -112,7 +88,7 @@
         </select>
         <label class="toggle-inline">
           <input type="checkbox" id="show-recurring-toggle" />
-          <span>Mostra abbonamenti</span>
+          <span>Mostra le vecchie fisse automatiche</span>
         </label>
       </div>
       <div id="movements-list" class="movements-list"></div>
@@ -120,7 +96,7 @@
 
     <!-- RICORRENTI / ABBONAMENTI -->
     <section id="recurring-screen" class="screen app-screen">
-      <p class="screen-intro">Spese fisse che si ripetono ogni mese (abbonamenti, bollette, gas, pulizia signora). Si generano automaticamente, non devi inserirle a mano.</p>
+      <p class="screen-intro">Spese fisse attese ogni mese. Contano fra le fisse «ancora da uscire» finché Claude non registra la spesa vera; se in un mese saltano, non contano.</p>
       <form id="recurring-form" class="recurring-form card">
         <input type="text" id="rec-name" placeholder="Nome (es. Netflix)" required maxlength="50" />
         <input type="number" step="0.01" min="0" id="rec-amount" placeholder="&euro;/mese" required inputmode="decimal" />
@@ -133,32 +109,9 @@
       <div id="recurring-list" class="recurring-list"></div>
     </section>
 
-    <!-- BUDGET -->
+    <!-- COME FUNZIONA (sola lettura: i numeri li scrive Claude) -->
     <section id="budget-screen" class="screen app-screen">
-      <h3 class="section-title">Entrate mensili (cosa entra)</h3>
-      <p class="screen-intro">Quanto guadagni ogni mese. Su questa cifra si basa il calcolo del margine libero in dashboard. Tieni numeri prudenti (sotto-stima dei variabili), il margine vero arriva a fine mese.</p>
-      <div id="income-list" class="sinking-list"></div>
-      <form id="income-form" class="recurring-form card">
-        <input type="text" id="inc-name" placeholder="Nome (es. P.IVA, royalties, stipendio)" required maxlength="40" />
-        <input type="number" step="0.01" min="0" id="inc-amount" placeholder="&euro;/mese" required inputmode="decimal" />
-        <input type="text" id="inc-note" placeholder="Nota (opzionale)" maxlength="80" />
-        <button type="submit" class="btn-primary">Aggiungi entrata</button>
-      </form>
-
-      <h3 class="section-title" style="margin-top:32px">Tetti mensili per categoria</h3>
-      <p class="screen-intro">Sopra il tetto la barra del mese diventa rossa. Tetto a 0 = nessun tetto.</p>
-      <div id="caps-list" class="caps-list"></div>
-      <button id="save-caps" class="btn-primary">Salva tetti</button>
-
-      <h3 class="section-title" style="margin-top:32px">Accantonamenti mensili (promemoria)</h3>
-      <p class="screen-intro">Promemoria di quanto bonificare ogni mese su conto separato (fondo emergenza, sinking auto, ecc.). Sono solo etichette: l'app non li conta come spesa, sei tu a bonificarli quando arrivano i soldi.</p>
-      <div id="sinking-list" class="sinking-list"></div>
-      <form id="sinking-form" class="recurring-form card">
-        <input type="text" id="sink-name" placeholder="Nome (es. Sinking auto)" required maxlength="40" />
-        <input type="number" step="0.01" min="0" id="sink-amount" placeholder="&euro;/mese" required inputmode="decimal" />
-        <input type="text" id="sink-note" placeholder="Nota (es. ass. lug+gen, bollo set)" maxlength="80" />
-        <button type="submit" class="btn-primary">Aggiungi accantonamento</button>
-      </form>
+      <div id="come-content"></div>
     </section>
 
     <!-- DIAGNOSI -->
@@ -253,29 +206,6 @@
       </div>
     </div>
 
-    <!-- MODAL: Modifica entrata -->
-    <div id="edit-income-modal" class="modal hidden">
-      <div class="modal-content">
-        <h2>Modifica entrata</h2>
-        <form id="edit-inc-form" class="add-form-modal">
-          <label><span>Nome</span>
-            <input type="text" id="edit-inc-name-input" required maxlength="50" />
-          </label>
-          <label><span>Importo (&euro;/mese)</span>
-            <input type="number" step="0.01" min="0" id="edit-inc-amount-input" required inputmode="decimal" />
-          </label>
-          <label><span>Nota (opzionale)</span>
-            <input type="text" id="edit-inc-note-input" maxlength="80" />
-          </label>
-          <div class="form-buttons">
-            <button type="submit" class="btn-primary">Salva modifiche</button>
-            <button type="button" id="delete-edit-inc" class="btn-secondary btn-danger-text">Elimina</button>
-            <button type="button" id="cancel-edit-inc" class="btn-secondary">Annulla</button>
-          </div>
-        </form>
-      </div>
-    </div>
-
     <!-- MODAL: Split scontrino -->
     <div id="split-modal" class="modal hidden">
       <div class="modal-content">
@@ -298,7 +228,7 @@
     <nav class="bottom-nav">
       <button data-screen="month-screen" class="nav-btn active">
         <span class="nav-icon">&equiv;</span>
-        <span class="nav-label">Dashboard</span>
+        <span class="nav-label">Budget</span>
       </button>
       <button data-screen="movements-screen" class="nav-btn">
         <span class="nav-icon">&#8645;</span>
@@ -306,15 +236,15 @@
       </button>
       <button data-screen="recurring-screen" class="nav-btn">
         <span class="nav-icon">&#8635;</span>
-        <span class="nav-label">Ricorrenti</span>
+        <span class="nav-label">Fisse</span>
       </button>
       <button data-screen="diagnosi-screen" class="nav-btn">
         <span class="nav-icon">&#9636;</span>
         <span class="nav-label">Diagnosi</span>
       </button>
       <button data-screen="budget-screen" class="nav-btn">
-        <span class="nav-icon">&#9881;</span>
-        <span class="nav-label">Budget</span>
+        <span class="nav-icon">?</span>
+        <span class="nav-label">Come funziona</span>
       </button>
     </nav>
 

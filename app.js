@@ -6,9 +6,11 @@
 const STORAGE_PREFIX = 'bf_';
 const FB_PATH = '/budget';
 const FB_URL = 'https://agenda-f3298-default-rtdb.europe-west1.firebasedatabase.app' + FB_PATH + '.json';
-const SYNC_KEYS = ['movements', 'recurring', 'caps', 'sinking', 'income'];
+// Scritte dall'app. Le chiavi vecchie (caps, sinking, income, anchor) restano nel database
+// ma l'app non le legge piu' e, col push a PATCH, non le tocca.
+const SYNC_KEYS = ['movements', 'recurring'];
 // Scritte solo da Claude (budget_dati.py): l'app le riceve e non le rimanda mai.
-const READONLY_KEYS = ['anchor', 'settings', 'incomeItems', 'installments', 'taxPayments'];
+const READONLY_KEYS = ['settings', 'incomeItems', 'installments', 'taxPayments', 'scadenze', 'cassaforte'];
 const PUSH_PENDING_KEY = STORAGE_PREFIX + '_pushPending';
 
 // --- Firebase Auth (login una volta per dispositivo, sessione persistente) ---
@@ -40,65 +42,49 @@ let lastPushTs = 0;        // timestamp dell'ultimo push riuscito (echo suppress
 let isOnline = navigator.onLine !== false;
 let realtimeRef = null;    // riferimento Firebase per sync live
 
-// Colori usati sia per i dot/barre sia per i badge a testo bianco: scelti per
-// dare almeno 4.5:1 col bianco a 11px (bug U5 dell'audit; prima benzina/palestra/
-// gas/spesa erano sotto soglia). Restano nella stessa famiglia cromatica.
+// Colori usati sia per i dot/barre sia per i badge a testo bianco: almeno 4.5:1 col bianco.
+// group: 'variabile' (portafoglio, con budget), 'fissa' (portafoglio, ricorrenti),
+// 'cassaforte' (pagate col portafoglio, rimborsate da Tinaba col bonifico di inizio mese).
+// Uguale a CATEGORIE_APP in budget_dati.py: se cambia qui, cambia anche lì.
 const CATEGORIES = [
-  { id: 'spesa-casa', name: 'Spesa + casa', color: '#15803d', fixed: false },
-  { id: 'benzina', name: 'Benzina', color: '#b45309', fixed: false },
-  { id: 'animali', name: 'Animali', color: '#9333ea', fixed: false },
-  { id: 'sfizi', name: 'Sfizi e uscite', color: '#dc2626', fixed: false },
-  { id: 'regali', name: 'Regali', color: '#be185d', fixed: false },
-  { id: 'abbigliamento', name: 'Abbigliamento', color: '#7c3aed', fixed: false },
-  { id: 'palestra-vitamine', name: 'Palestra + Vitamine', color: '#a16207', fixed: false },
-  { id: 'abbonamenti', name: 'Abbonamenti streaming/SaaS', color: '#2563eb', fixed: true },
-  { id: 'casa-gas', name: 'Casa - bombola gas', color: '#0f766e', fixed: true },
-  { id: 'casa-pulizia', name: 'Casa - pulizia signora', color: '#0e7490', fixed: true },
-  { id: 'cura-personale', name: 'Cura personale', color: '#be185d', fixed: true },
-  { id: 'vacanze', name: 'Vacanze/viaggi', color: '#475569', fixed: false, hidden: true }
+  { id: 'spesa-casa', name: 'Spesa e casa', color: '#15803d', group: 'variabile' },
+  { id: 'spese-libere', name: 'Spese libere', color: '#dc2626', group: 'variabile' },
+  { id: 'benzina', name: 'Benzina', color: '#b45309', group: 'variabile' },
+  { id: 'abbonamenti', name: 'Abbonamenti', color: '#2563eb', group: 'fissa' },
+  { id: 'casa-gas', name: 'Bombola del gas', color: '#0f766e', group: 'fissa' },
+  { id: 'casa-pulizia', name: 'Signora delle pulizie', color: '#0e7490', group: 'fissa' },
+  { id: 'cura-personale', name: 'Cura personale', color: '#be185d', group: 'fissa' },
+  { id: 'lavoro', name: 'Lavoro', color: '#4338ca', group: 'fissa' },
+  { id: 'salute', name: 'Salute', color: '#b91c1c', group: 'cassaforte' },
+  { id: 'auto', name: 'Auto', color: '#92400e', group: 'cassaforte' },
+  { id: 'veterinario', name: 'Veterinario', color: '#9333ea', group: 'cassaforte' },
+  { id: 'regali-anno', name: 'Regali', color: '#a21caf', group: 'cassaforte' },
+  { id: 'viaggi', name: 'Viaggi', color: '#475569', group: 'cassaforte' },
+  { id: 'tasse', name: 'Tasse', color: '#334155', group: 'cassaforte' },
+  { id: 'rate', name: 'Rate', color: '#57534e', group: 'cassaforte' }
 ];
+const GROUP_LABELS = { variabile: 'Portafoglio', fissa: 'Fisse del portafoglio', cassaforte: 'Cassaforte' };
 
-const DEFAULT_CAPS = {
-  'spesa-casa': 400,
-  'benzina': 100,
-  'animali': 120,
-  'sfizi': 300,
-  'regali': 0,
-  'abbigliamento': 0,
-  'palestra-vitamine': 0,
-  'abbonamenti': 0,
-  'casa-gas': 0,
-  'casa-pulizia': 0,
-  'cura-personale': 0,
-  'vacanze': 0
-};
-
-const DEFAULT_INCOME = [
-  { id: 'i-mattia', name: 'Mattia entrate nette', amount: 1700, note: 'Conservativo, solo Mattia' }
-];
-
-const DEFAULT_SINKING = [
-  { id: 's-salvadanaio', name: 'Salvadanaio coppia', amount: 200, note: 'Crescita patrimonio, conto deposito intoccabile' },
-  { id: 's-auto', name: 'Sinking auto', amount: 75, note: 'Ass. luglio + gennaio, bollo settembre, revisione gennaio 2027' },
-  { id: 's-regali', name: 'Sinking regali', amount: 50, note: 'Natale, compleanni, occasioni' }
-];
-
-// Id deterministici (r-...) come per sinking (s-...) e income (i-...): cosi' due
-// device che seminano i default in autonomia (primo avvio con pull fallito) NON
-// li duplicano al merge successivo (bug B4 dell'audit). Gli id non vanno piu' cambiati.
+// Id deterministici (r-...): due device che seminano i default non li duplicano al merge.
+// Gli id non vanno piu' cambiati. Spese fisse decise con Mattia il 22/11/2026.
 const DEFAULT_RECURRING = [
-  { id: 'r-openai', name: 'OpenAI ChatGPT Plus', amount: 21, category: 'abbonamenti', dayOfMonth: 24 },
-  { id: 'r-apple1', name: 'Apple #1', amount: 9.99, category: 'abbonamenti', dayOfMonth: 5 },
-  { id: 'r-apple2', name: 'Apple #2', amount: 9.99, category: 'abbonamenti', dayOfMonth: 19 },
-  { id: 'r-capcut', name: 'CapCut Pro', amount: 11.99, category: 'abbonamenti', dayOfMonth: 6 },
-  { id: 'r-tim', name: 'Telecom Italia', amount: 10.97, category: 'abbonamenti', dayOfMonth: 17 },
-  { id: 'r-iliad', name: 'Iliad', amount: 7.99, category: 'abbonamenti', dayOfMonth: 20 },
+  { id: 'r-apple-icloud-1', name: 'Apple iCloud', amount: 9.99, category: 'abbonamenti', dayOfMonth: 5 },
+  { id: 'r-apple-icloud-2', name: 'Apple iCloud (Michelle)', amount: 9.99, category: 'abbonamenti', dayOfMonth: 19 },
+  { id: 'r-capcut', name: 'CapCut (tramite Apple)', amount: 11.99, category: 'abbonamenti', dayOfMonth: 20 },
+  { id: 'r-apple-199', name: 'Apple 1,99', amount: 1.99, category: 'abbonamenti', dayOfMonth: 27 },
+  { id: 'r-chatgpt-michelle', name: 'ChatGPT di Michelle', amount: 22.19, category: 'abbonamenti', dayOfMonth: 24 },
+  { id: 'r-telecom', name: 'Telecom', amount: 10.97, category: 'abbonamenti', dayOfMonth: 17 },
+  { id: 'r-iliad', name: 'Iliad', amount: 7.99, category: 'abbonamenti', dayOfMonth: 18 },
   { id: 'r-netflix', name: 'Netflix', amount: 6.99, category: 'abbonamenti', dayOfMonth: 25 },
   { id: 'r-disney', name: 'Disney+', amount: 6.99, category: 'abbonamenti', dayOfMonth: 17 },
   { id: 'r-hbo', name: 'HBO Max', amount: 5.99, category: 'abbonamenti', dayOfMonth: 11 },
-  { id: 'r-intesa', name: 'Canone conto Intesa', amount: 3.95, category: 'abbonamenti', dayOfMonth: 28 },
-  { id: 'r-signora', name: 'Signora delle pulizie', amount: 64, category: 'casa-pulizia', dayOfMonth: 1 },
-  { id: 'r-barbiere', name: 'Barbiere', amount: 45, category: 'cura-personale', dayOfMonth: 1 }
+  { id: 'r-signora', name: 'Signora delle pulizie', amount: 70, category: 'casa-pulizia', dayOfMonth: 1 },
+  { id: 'r-bombola', name: 'Bombola del gas', amount: 45, category: 'casa-gas', dayOfMonth: 1 },
+  { id: 'r-unghie-michelle', name: 'Unghie di Michelle', amount: 40, category: 'cura-personale', dayOfMonth: 1 },
+  { id: 'r-barbiere', name: 'Barbiere', amount: 30, category: 'cura-personale', dayOfMonth: 1 },
+  { id: 'r-fiscozen', name: 'Fiscozen', amount: 59.9, category: 'lavoro', dayOfMonth: 14 },
+  { id: 'r-cloudflare', name: 'Cloudflare', amount: 4.62, category: 'lavoro', dayOfMonth: 16 },
+  { id: 'r-elevenlabs', name: 'ElevenLabs', amount: 5.54, category: 'lavoro', dayOfMonth: 6 }
 ];
 
 const MIN_MONTH = new Date(2026, 4, 1); // maggio 2026 (mese 4 = maggio, 0-indexed)
@@ -110,9 +96,6 @@ const MAX_MONTH_OFFSET = 12;            // navigabile fino a 12 mesi nel futuro
 let currentMonth = startOfMonth(new Date());
 let cachedMovements = [];
 let cachedRecurring = [];
-let cachedCaps = { ...DEFAULT_CAPS };
-let cachedSinking = [...DEFAULT_SINKING];
-let cachedIncome = [...DEFAULT_INCOME];
 
 // ============================================================
 // STORAGE (localStorage)
@@ -159,42 +142,6 @@ function loadRecurring() {
   return arr;
 }
 function saveRecurring(arr) { const ok = lsWrite('recurring', arr); if (ok) schedulePush(); return ok; }
-function loadCaps() { return lsRead('caps', { ...DEFAULT_CAPS }); }
-function saveCaps(obj) {
-  // Timbra un timestamp per categoria nel sotto-oggetto nascosto `_t`, cosi' il
-  // merge multi-device puo' tenere il valore piu' recente categoria per categoria
-  // (prima i caps venivano sovrascritti in blocco da un PUT stantio dell'altro device).
-  // I dati esistenti senza `_t` valgono timestamp 0: un salvataggio vince sempre su di essi,
-  // e un push stantio senza `_t` non sovrascrive piu' un tetto appena modificato qui.
-  const now = Date.now();
-  const out = {};
-  const t = { ...(obj._t || {}) };
-  for (const k in obj) { if (k !== '_t') { out[k] = obj[k]; t[k] = now; } }
-  out._t = t;
-  const ok = lsWrite('caps', out);
-  if (ok) schedulePush();
-  return ok;
-}
-// Merge dei tetti categoria per categoria: vince il valore col `_t` piu' recente.
-function mergeCaps(local, remote) {
-  local = local && typeof local === 'object' ? local : {};
-  remote = remote && typeof remote === 'object' ? remote : {};
-  const lt = local._t || {}, rt = remote._t || {};
-  const out = {}, outT = {};
-  const keys = new Set([...Object.keys(local), ...Object.keys(remote)].filter(k => k !== '_t'));
-  for (const k of keys) {
-    const lts = lt[k] || 0, rts = rt[k] || 0;
-    // A parita' (tipico: entrambi senza _t, dati legacy) tiene il valore locale.
-    if (rts > lts) { out[k] = remote[k]; outT[k] = rts; }
-    else { out[k] = (k in local) ? local[k] : remote[k]; outT[k] = Math.max(lts, rts); }
-  }
-  out._t = outT;
-  return out;
-}
-function loadSinking() { return lsRead('sinking', [...DEFAULT_SINKING]); }
-function saveSinking(arr) { const ok = lsWrite('sinking', arr); if (ok) schedulePush(); return ok; }
-function loadIncome() { return lsRead('income', [...DEFAULT_INCOME]); }
-function saveIncome(arr) { const ok = lsWrite('income', arr); if (ok) schedulePush(); return ok; }
 
 // ============================================================
 // FIREBASE SYNC (Realtime DB: SDK real-time + REST per push affidabile)
@@ -262,7 +209,7 @@ function activeOnly(arr) {
 function purgeOldTombstones() {
   const cutoff = Date.now() - 60 * 24 * 60 * 60 * 1000;
   let changed = false;
-  for (const k of ['movements', 'recurring', 'sinking', 'income']) {
+  for (const k of ['movements', 'recurring']) {
     const arr = lsRead(k, []);
     if (!Array.isArray(arr)) continue;
     const filtered = arr.filter(it => !(it && it._deleted && (it._modTs || 0) < cutoff));
@@ -282,7 +229,7 @@ function applyRemotePayload(remote) {
   lastMergeNeedsRepush = false;
   if (!remote || typeof remote !== 'object') return false;
   let applied = false;
-  const MERGE_KEYS = ['movements', 'recurring', 'sinking', 'income'];
+  const MERGE_KEYS = ['movements', 'recurring'];
   for (const k of SYNC_KEYS) {
     if (remote[k]) {
       try {
@@ -293,17 +240,6 @@ function applyRemotePayload(remote) {
           // Se la fusione ha piu' voci del remoto, il server non aveva tutto: ri-push.
           if (merged.length > parsed.length) lastMergeNeedsRepush = true;
           lsWrite(k, merged);
-        } else if (k === 'caps') {
-          // Merge per categoria col timestamp `_t`: niente piu' sovrascrittura
-          // in blocco di un tetto modificato qui da un payload stantio dell'altro device.
-          const local = lsRead('caps', {});
-          const merged = mergeCaps(local, parsed);
-          // Se un tetto locale ha vinto sul remoto (valore diverso), ri-push.
-          for (const ck in merged) {
-            if (ck === '_t') continue;
-            if (merged[ck] !== parsed[ck]) { lastMergeNeedsRepush = true; break; }
-          }
-          lsWrite('caps', merged);
         } else {
           lsWrite(k, parsed);
         }
@@ -486,12 +422,10 @@ function setupRealtimeSync() {
 // Esegue il render di tutte le viste. Separato cosi' da poterlo rimandare.
 function doRenderAll() {
   if (!document.getElementById('hero-residuo')) return; // app-container ancora hidden
-  try { renderMonth(); } catch (e) {}
-  try { renderMovements(); } catch (e) {}
-  try { renderRecurring(); } catch (e) {}
-  try { renderCaps(); } catch (e) {}
-  try { renderSinking(); } catch (e) {}
-  try { renderIncome(); } catch (e) {}
+  try { renderMonth(); } catch (e) { console.error(e); }
+  try { renderMovements(); } catch (e) { console.error(e); }
+  try { renderRecurring(); } catch (e) { console.error(e); }
+  try { renderComeFunziona(); } catch (e) { console.error(e); }
 }
 
 // Se l'utente sta scrivendo in un campo (es. i tetti, salvati solo col bottone),
@@ -509,9 +443,6 @@ function safeRender() {
 function refreshAllCachesAndRender() {
   cachedRecurring = activeOnly(loadRecurring());
   cachedMovements = filterMovementsByMonth(currentMonth);
-  cachedCaps = loadCaps();
-  cachedSinking = activeOnly(loadSinking());
-  cachedIncome = activeOnly(loadIncome());
   safeRender();
 }
 
@@ -525,14 +456,6 @@ function bindUnloadFlush() {
     // aperta a cavallo della mezzanotte del 1), rigenera le ricorrenti e riallinea
     // la vista al mese corrente (bug B6 dell'audit).
     try {
-      const now = new Date();
-      ensureRecurringForMonth();
-      cachedRecurring = activeOnly(loadRecurring());
-      const wasViewingCurrent = (currentMonth.getFullYear() === now.getFullYear() && currentMonth.getMonth() === now.getMonth());
-      if (!wasViewingCurrent && document.getElementById('hero-residuo')) {
-        // Non spostiamo a forza la vista se l'utente stava guardando un altro mese
-        // di proposito; rigeneriamo solo i dati. Il render naturale mostrera' i nuovi.
-      }
       cachedMovements = filterMovementsByMonth(currentMonth);
       if (document.getElementById('hero-residuo')) { try { renderMonth(); } catch (e) {} try { renderMovements(); } catch (e) {} }
     } catch (e) {}
@@ -558,7 +481,7 @@ function bindUnloadFlush() {
 // HELPERS
 // ============================================================
 function fmtEUR(n) {
-  return (n || 0).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return (n || 0).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2, useGrouping: 'always' });
 }
 function startOfMonth(d) {
   const x = new Date(d);
@@ -595,111 +518,53 @@ function showToast(msg, isError) {
   setTimeout(() => t.classList.remove('toast-visible'), 2500);
 }
 
-const MIGRATION_VERSION = 'v4-2026-06-04';
+// Migrazione al sistema portafoglio + cassaforte (22/11/2026). Gira una volta per versione;
+// ogni voce toccata riceve _modTs nuovo, cosi' il merge fa vincere la versione migrata.
+const MIGRATION_VERSION = 'v5-2026-11-22';
+const CATEGORIE_VECCHIE = {
+  'animali': 'spesa-casa',
+  'sfizi': 'spese-libere',
+  'abbigliamento': 'spese-libere',
+  'palestra-vitamine': 'spese-libere',
+  'vacanze': 'viaggi',
+  'regali': 'regali-anno'
+};
+const MESE_AVVIO_MIGRAZIONE = '2026-11';
 function migrateCategories() {
-  // Idempotenza: gira una volta sola per versione. Evita di cancellare entita future
-  // che matcherebbero pattern legacy (es. un futuro sinking con parola "palestra").
   if (localStorage.getItem(STORAGE_PREFIX + '_migration') === MIGRATION_VERSION) return;
-  // Ogni record toccato dalla migrazione riceve _modTs aggiornato. Cosi' il merge
-  // multi-device fa vincere la versione migrata sui device che ancora avevano
-  // i dati legacy.
   const migTs = Date.now();
-  // Step 1: vecchia 'bollette' -> 'abbonamenti' o 'casa-gas'
-  // Step 2: vecchia 'casa-fisse' -> 'casa-gas'
   let touched = false;
   const movs = loadMovements();
   for (const m of movs) {
-    if (m.category === 'bollette') {
-      const txt = ((m.note || '') + ' ' + (m.name || '')).toLowerCase();
-      m.category = txt.includes('bombola') || txt.includes('gas') ? 'casa-gas' : 'abbonamenti';
+    if (!m) continue;
+    if (CATEGORIE_VECCHIE[m.category]) {
+      m.category = CATEGORIE_VECCHIE[m.category];
       m._modTs = migTs;
       touched = true;
-    } else if (m.category === 'casa-fisse') {
-      m.category = 'casa-gas';
-      m._modTs = migTs;
-      touched = true;
+    }
+    // Le fisse generate in automatico dalle vecchie ricorrenti, dal mese di avvio in poi,
+    // non sono spese vere: con il sistema nuovo le fisse sono previste finche' non arrivano.
+    if (m.isRecurring && !m._deleted) {
+      const d = new Date(m.date);
+      const mk = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+      if (mk >= MESE_AVVIO_MIGRAZIONE) { m._deleted = true; m._modTs = migTs; touched = true; }
     }
   }
   if (touched) lsWrite('movements', movs);
 
-  const recs = loadRecurring();
+  // Ricorrenti: le vecchie diventano tombstone, le nuove (id r-...) si aggiungono se mancano.
+  const recs = lsRead('recurring', []);
+  const nuoviId = new Set(DEFAULT_RECURRING.map(r => r.id));
   let touchedR = false;
   for (const r of recs) {
-    if (r.category === 'bollette') {
-      const n = (r.name || '').toLowerCase();
-      r.category = n.includes('bombola') || n.includes('gas') ? 'casa-gas' : 'abbonamenti';
-      r._modTs = migTs;
-      touchedR = true;
-    } else if (r.category === 'casa-fisse') {
-      r.category = 'casa-gas';
-      r._modTs = migTs;
-      touchedR = true;
-    }
+    if (r && !r._deleted && !nuoviId.has(r.id)) { r._deleted = true; r._modTs = migTs; touchedR = true; }
   }
-  // Rinomina vecchia "Pulizia signora" in "Signora delle pulizie"
-  for (const r of recs) {
-    if (r.name === 'Pulizia signora') {
-      r.name = 'Signora delle pulizie';
-      r._modTs = migTs;
-      touchedR = true;
-    }
+  const presenti = new Set(recs.map(r => r && r.id));
+  for (const d of DEFAULT_RECURRING) {
+    if (!presenti.has(d.id)) { recs.push(Object.assign({ active: true }, d, { _modTs: migTs })); touchedR = true; }
   }
-
-  // Aggiungi nuovi ricorrenti default se mancano (per utenti esistenti)
-  const hasPulizia = recs.some(r => r.category === 'casa-pulizia');
-  const hasBarbiere = recs.some(r => r.category === 'cura-personale');
-  if (!hasPulizia) {
-    recs.push({ id: uuid(), name: 'Signora delle pulizie', amount: 64, category: 'casa-pulizia', dayOfMonth: 1, active: true, lastGeneratedMonth: null, _modTs: migTs });
-    touchedR = true;
-  }
-  if (!hasBarbiere) {
-    recs.push({ id: uuid(), name: 'Barbiere', amount: 30, category: 'cura-personale', dayOfMonth: 1, active: true, lastGeneratedMonth: null, _modTs: migTs });
-    touchedR = true;
-  }
-  const hasMichCura = recs.some(r => r.name && r.name.toLowerCase().includes('mich'));
-  if (!hasMichCura) {
-    recs.push({ id: uuid(), name: 'Mich cura di sé', amount: 60, category: 'cura-personale', dayOfMonth: 1, active: true, lastGeneratedMonth: null, _modTs: migTs });
-    touchedR = true;
-  }
-
   if (touchedR) lsWrite('recurring', recs);
-
-  const caps = loadCaps();
-  let touchedC = false;
-  if ('bollette' in caps) { delete caps.bollette; touchedC = true; }
-  if ('casa-fisse' in caps) { delete caps['casa-fisse']; touchedC = true; }
-  for (const id of ['abbonamenti', 'casa-gas', 'casa-pulizia', 'cura-personale', 'regali', 'abbigliamento', 'palestra-vitamine']) {
-    if (!(id in caps)) { caps[id] = 0; touchedC = true; }
-  }
-  if (touchedC) lsWrite('caps', caps);
-
-  // Sinking: rinomina Fondo emergenza in Salvadanaio coppia, togli Palestra (pagata una tantum), aggiungi Regali se mancante
-  const sinks = loadSinking();
-  let touchedS = false;
-  for (const s of sinks) {
-    if (s.name === 'Fondo emergenza' || s.id === 's-emergenza') {
-      s.name = 'Salvadanaio coppia';
-      s.note = 'Crescita patrimonio, conto deposito intoccabile';
-      s._modTs = migTs;
-      touchedS = true;
-    }
-  }
-  // Le voci "palestra" diventano tombstone invece di scomparire: la cancellazione
-  // si propaga via merge multi-device (altrimenti un device che ancora le aveva
-  // le rimetterebbe in vita al prossimo sync).
-  for (const s of sinks) {
-    if (s.name && s.name.toLowerCase().includes('palestra') && !s._deleted) {
-      s._deleted = true;
-      s._modTs = migTs;
-      touchedS = true;
-    }
-  }
-  const hasRegali = sinks.some(s => !s._deleted && s.name && s.name.toLowerCase().includes('regali'));
-  if (!hasRegali) {
-    sinks.push({ id: uuid(), name: 'Sinking regali', amount: 50, note: 'Natale, compleanni, occasioni', _modTs: migTs });
-    touchedS = true;
-  }
-  if (touchedS) { lsWrite('sinking', sinks); schedulePush(); }
+  if (touched || touchedR) schedulePush();
   localStorage.setItem(STORAGE_PREFIX + '_migration', MIGRATION_VERSION);
 }
 
@@ -709,66 +574,6 @@ function filterMovementsByMonth(month) {
   return activeOnly(loadMovements())
     .filter(m => { const t = +new Date(m.date); return t >= start && t < end; })
     .sort((a, b) => +new Date(b.date) - +new Date(a.date));
-}
-
-// ============================================================
-// RICORRENTI: generazione automatica del mese corrente
-// ============================================================
-// Genera le spese ricorrenti dei mesi mancanti, dal mese successivo a
-// lastGeneratedMonth fino al mese corrente incluso (catch-up: bug B6 dell'audit,
-// un mese in cui l'app non viene aperta non resta piu' senza spese fisse).
-// L'id del movimento generato e' DETERMINISTICO (recurringId:YYYY-MM): cosi' due
-// device che generano lo stesso mese producono lo stesso id e mergeById li collassa
-// (niente piu' doppia generazione, bug B5), ed e' idempotente per costruzione.
-function ensureRecurringForMonth() {
-  const now = new Date();
-  const curY = now.getFullYear(), curM = now.getMonth();
-  const recs = loadRecurring();
-  const movs = loadMovements();
-  const nowTs = Date.now();
-  // Indice degli id movimento gia' presenti (inclusi i tombstones: una voce
-  // cancellata dall'utente non va rigenerata).
-  const existingIds = new Set(movs.map(m => m && m.id).filter(Boolean));
-  let touched = false;
-
-  for (const rec of recs) {
-    if (!rec || rec._deleted || !rec.active) continue;
-    // Punto di partenza del catch-up: il mese dopo lastGeneratedMonth, oppure il
-    // mese corrente se non e' mai stato generato nulla (niente storia retroattiva).
-    let y = curY, m = curM;
-    if (rec.lastGeneratedMonth && /^\d{4}-\d{2}$/.test(rec.lastGeneratedMonth)) {
-      const [ly, lm] = rec.lastGeneratedMonth.split('-').map(Number);
-      y = ly; m = lm - 1 + 1; // mese successivo (0-indexed: lm-1, poi +1)
-      if (m > 11) { m = 0; y++; }
-    }
-    // Itera i mesi mancanti fino al corrente (cap a 24 iterazioni per sicurezza).
-    let guard = 0;
-    while ((y < curY || (y === curY && m <= curM)) && guard++ < 24) {
-      const mk = y + '-' + String(m + 1).padStart(2, '0');
-      const movId = rec.id + ':' + mk;
-      if (!existingIds.has(movId)) {
-        const day = Math.min(Math.max(parseInt(rec.dayOfMonth) || 1, 1), 28);
-        const movDate = new Date(y, m, day, 12, 0, 0);
-        movs.push({
-          id: movId,
-          date: movDate.toISOString(),
-          amount: rec.amount,
-          category: rec.category,
-          note: rec.name + ' (ricorrente)',
-          isRecurring: true,
-          recurringId: rec.id,
-          _modTs: nowTs
-        });
-        existingIds.add(movId);
-        touched = true;
-      }
-      if (m === curM && y === curY) break;
-      m++; if (m > 11) { m = 0; y++; }
-    }
-    const curMk = curY + '-' + String(curM + 1).padStart(2, '0');
-    if (rec.lastGeneratedMonth !== curMk) { rec.lastGeneratedMonth = curMk; rec._modTs = nowTs; touched = true; }
-  }
-  if (touched) { saveMovements(movs); saveRecurring(recs); }
 }
 
 // ============================================================
@@ -958,222 +763,26 @@ function updateMonthNavState() {
   }
 }
 
+// Aggiorna le viste legate al mese scelto (movimenti, diagnosi) e la schermata principale.
 function renderMonth() {
   document.getElementById('month-label').textContent = monthLabel(currentMonth);
   updateMonthNavState();
-  const totals = {};
-  CATEGORIES.forEach(c => { totals[c.id] = 0; });
-  let totalToday = 0;
-  let totalVariable = 0;
-  let totalFixed = 0;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const todayStr = todayISO();
-  for (const m of cachedMovements) {
-    totals[m.category] = (totals[m.category] || 0) + m.amount;
-    const cat = getCategory(m.category);
-    if (cat && cat.fixed) totalFixed += m.amount;
-    else totalVariable += m.amount;
-    // Giorno locale via getter (non slice UTC: pattern fragile dell'audit B12).
-    const mDate = new Date(m.date);
-    const dStr = mDate.getFullYear() + '-' + String(mDate.getMonth() + 1).padStart(2, '0') + '-' + String(mDate.getDate()).padStart(2, '0');
-    if (dStr === todayStr) totalToday += m.amount;
-  }
-
-  // Separazione capped vs free: il residuo del hero si calcola SOLO sulle
-  // categorie con tetto > 0. Le libere (regali, palestra, abbigliamento ecc.)
-  // sono spese occasionali a parte e non devono erodere il budget delle
-  // categorie su cui ci si e' dati un limite.
-  let totBudget = 0;
-  let totalCapped = 0;
-  let totalFree = 0;
-  for (const c of CATEGORIES) {
-    if (c.fixed || c.hidden) continue;
-    const cap = cachedCaps[c.id] || 0;
-    if (cap > 0) {
-      totBudget += cap;
-      totalCapped += totals[c.id] || 0;
-    } else {
-      totalFree += totals[c.id] || 0;
-    }
-  }
-  const residuo = totBudget - totalCapped;
-
-  // HERO (su variabili)
-  const heroEl = document.getElementById('hero-residuo');
-  const heroSub = document.getElementById('hero-sub');
-  const heroCard = document.querySelector('.hero-card');
-  const heroLabel = document.querySelector('.hero-label');
-  // Etichetta dinamica: dice quale mese si sta guardando (prima diceva sempre
-  // "questo mese" anche navigando ai mesi passati, bug U2 dell'audit).
-  const isCurMonth = (today.getFullYear() === currentMonth.getFullYear() && today.getMonth() === currentMonth.getMonth());
-  if (heroLabel) {
-    heroLabel.textContent = isCurMonth
-      ? 'Budget residuo questo mese (spese variabili)'
-      : 'Budget residuo ' + monthLabel(currentMonth) + ' (spese variabili)';
-  }
-  if (totBudget > 0) {
-    heroEl.textContent = (residuo >= 0 ? '' : '-') + fmtEUR(Math.abs(residuo)) + ' €';
-    heroEl.classList.toggle('hero-negative', residuo < 0);
-    if (heroCard) heroCard.classList.toggle('hero-card-negative', residuo < 0);
-    if (residuo < 0) {
-      heroSub.textContent = 'Tetto superato di ' + fmtEUR(Math.abs(residuo)) + ' €.';
-      heroSub.classList.remove('hidden');
-    } else {
-      heroSub.textContent = '';
-      heroSub.classList.add('hidden');
-    }
-  } else {
-    heroEl.textContent = fmtEUR(totalVariable) + ' €';
-    heroEl.classList.remove('hero-negative');
-    if (heroCard) heroCard.classList.remove('hero-card-negative');
-    heroSub.textContent = 'Imposta i tetti dal tab Budget per vedere il residuo.';
-    heroSub.classList.remove('hidden');
-  }
-
-  // Daily pace: quanto puoi spendere al giorno fino a fine mese (solo mese corrente)
-  const heroPace = document.getElementById('hero-pace');
-  const isCurrentMonth = (today.getFullYear() === currentMonth.getFullYear() && today.getMonth() === currentMonth.getMonth());
-  if (isCurrentMonth && totBudget > 0 && residuo > 0) {
-    const lastDay = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0).getDate();
-    const daysRemaining = lastDay - today.getDate() + 1; // incluso oggi
-    const dailyPace = residuo / daysRemaining;
-    const endDateStr = String(lastDay) + '/' + String(currentMonth.getMonth() + 1).padStart(2, '0');
-    const gg = daysRemaining === 1 ? '1 giorno' : daysRemaining + ' giorni';
-    heroPace.innerHTML =
-      '<span>Puoi spendere</span>' +
-      '<span class="pace-value">' + fmtEUR(dailyPace) + ' €/giorno</span>' +
-      '<span class="pace-meta">fino al ' + endDateStr + ' (' + gg + ')</span>';
-    heroPace.classList.remove('hidden');
-  } else {
-    heroPace.classList.add('hidden');
-  }
-
-  renderMoneyBox(isCurrentMonth);
-
-  // Spese libere (categorie variabili senza tetto): mostrate a parte dal residuo
-  // dei tetti. Cosi' si vede a colpo d'occhio quanto e' uscito in regali,
-  // palestra, abbigliamento senza che eroda il budget delle altre categorie.
-  const freeBox = document.getElementById('free-box');
-  const freeDetails = CATEGORIES.filter(c => !c.fixed && !c.hidden && !(cachedCaps[c.id] > 0))
-    .map(c => ({ c: c, amount: totals[c.id] || 0 }))
-    .filter(x => x.amount > 0);
-  if (freeBox) {
-    if (freeDetails.length > 0) {
-      freeBox.innerHTML =
-        '<div class="fixed-box-head">' +
-          '<div>' +
-            '<div class="fixed-label">Spese libere del mese (senza tetto)</div>' +
-            '<div class="fixed-total">' + fmtEUR(totalFree) + ' €</div>' +
-          '</div>' +
-          '<div class="fixed-toggle" aria-hidden="true">&#9662;</div>' +
-        '</div>' +
-        '<div class="fixed-breakdown">' +
-        freeDetails.map(x =>
-          '<span class="fixed-pill" style="background:' + x.c.color + '">' +
-          escapeHtml(x.c.name) + ': ' + fmtEUR(x.amount) + ' €</span>'
-        ).join('') +
-        '</div>';
-      freeBox.classList.remove('hidden');
-    } else {
-      freeBox.classList.add('hidden');
-    }
-  }
-
-  // Spese fisse mensili (collapsible: solo totale, click per dettaglio)
-  const fixedBox = document.getElementById('fixed-box');
-  const fixedDetails = CATEGORIES.filter(c => c.fixed && !c.hidden)
-    .map(c => ({ c: c, amount: totals[c.id] || 0 }))
-    .filter(x => x.amount > 0);
-  if (fixedDetails.length > 0) {
-    fixedBox.innerHTML =
-      '<div class="fixed-box-head">' +
-        '<div>' +
-          '<div class="fixed-label">Spese fisse del mese</div>' +
-          '<div class="fixed-total">' + fmtEUR(totalFixed) + ' €</div>' +
-        '</div>' +
-        '<div class="fixed-toggle" aria-hidden="true">&#9662;</div>' +
-      '</div>' +
-      '<div class="fixed-breakdown">' +
-      fixedDetails.map(x =>
-        '<span class="fixed-pill" style="background:' + x.c.color + '">' +
-        escapeHtml(x.c.name) + ': ' + fmtEUR(x.amount) + ' €</span>'
-      ).join('') +
-      '</div>';
-    fixedBox.classList.remove('hidden');
-  } else {
-    fixedBox.classList.add('hidden');
-  }
-
-  // Quadro mensile (piano)
-  const quadroBox = document.getElementById('quadro-box');
-  const entrateTot = cachedIncome.reduce((a, i) => a + (i.amount || 0), 0);
-  const fissiAttesi = cachedRecurring.filter(r => r.active).reduce((a, r) => a + (r.amount || 0), 0);
-  const tettiVariabili = CATEGORIES.filter(c => !c.fixed && !c.hidden).reduce((a, c) => a + (cachedCaps[c.id] || 0), 0);
-  const accantonamentiTot = cachedSinking.reduce((a, s) => a + (s.amount || 0), 0);
-  const margineTeorico = entrateTot - fissiAttesi - tettiVariabili - accantonamentiTot;
-  const marginClass = margineTeorico >= 0 ? 'quadro-good' : 'quadro-bad';
-  if (entrateTot > 0) {
-    quadroBox.classList.remove('hidden');
-    quadroBox.innerHTML =
-      '<div class="quadro-title">Quadro mensile (piano)</div>' +
-      '<div class="quadro-rows">' +
-        '<div class="quadro-row"><span>Entrate stimate</span><strong>' + fmtEUR(entrateTot) + ' €</strong></div>' +
-        '<div class="quadro-row neg"><span>− Spese fisse attese</span><strong>' + fmtEUR(fissiAttesi) + ' €</strong></div>' +
-        '<div class="quadro-row neg"><span>− Tetti variabili</span><strong>' + fmtEUR(tettiVariabili) + ' €</strong></div>' +
-        '<div class="quadro-row neg"><span>− Accantonamenti</span><strong>' + fmtEUR(accantonamentiTot) + ' €</strong></div>' +
-        '<div class="quadro-row quadro-margin ' + marginClass + '"><span>= Margine libero teorico</span><strong>' + (margineTeorico >= 0 ? '+' : '') + fmtEUR(margineTeorico) + ' €</strong></div>' +
-      '</div>';
-  } else {
-    quadroBox.classList.add('hidden');
-  }
-
-  // KPI
-  document.getElementById('kpi-speso').textContent = fmtEUR(totalVariable) + ' €';
-  document.getElementById('kpi-tetto').textContent = totBudget > 0 ? fmtEUR(totBudget) + ' €' : 'n/d';
-  document.getElementById('kpi-oggi').textContent = fmtEUR(totalToday) + ' €';
-
-  // Categories list: solo variabili visibili
-  const variableCats = CATEGORIES.filter(c => !c.fixed && !c.hidden);
-  document.getElementById('categories-list').innerHTML = variableCats.map(c => {
-    const speso = totals[c.id];
-    const cap = cachedCaps[c.id] || 0;
-    let pct, statusClass = '';
-    if (cap > 0) {
-      pct = Math.min((speso / cap) * 100, 100);
-      if (speso >= cap) statusClass = 'cat-over';
-      else if (speso >= cap * 0.8) statusClass = 'cat-warn';
-    } else {
-      const max = Math.max.apply(null, variableCats.map(vc => totals[vc.id]).concat([1]));
-      pct = (speso / max) * 100;
-    }
-    // Formato pulito: "120,00 € / 300,00 €" oppure "120,00 € (libero)".
-    const capText = cap > 0 ? ' / ' + fmtEUR(cap) + ' €' : ' (libero)';
-    return '<div class="cat-row ' + statusClass + '">' +
-      '<div class="cat-row-head">' +
-      '<span class="cat-dot" style="background:' + c.color + '"></span>' +
-      '<span class="cat-name">' + c.name + '</span>' +
-      '<span class="cat-amount">' + fmtEUR(speso) + ' €' + capText + '</span>' +
-      '</div>' +
-      '<div class="cat-bar"><div class="cat-bar-fill" style="width:' + pct + '%;background:' + c.color + '"></div></div>' +
-      '</div>';
-  }).join('');
-
+  renderHome();
   renderDiagnosi();
 }
 
 // ============================================================
-// SOLDI VERI: numero principale e riquadro, da calcoli.js
+// SCHERMATA PRINCIPALE: numeri da calcoli.js
 // ============================================================
 function datiCalcolo() {
   return {
     movements: loadMovements(),
+    recurring: loadRecurring(),
     incomeItems: lsRead('incomeItems', []),
-    installments: lsRead('installments', []),
     taxPayments: lsRead('taxPayments', []),
+    scadenze: lsRead('scadenze', []),
+    cassaforte: lsRead('cassaforte', null),
     settings: lsRead('settings', {}),
-    anchor: lsRead('anchor', null),
-    caps: cachedCaps,
     categories: CATEGORIES
   };
 }
@@ -1183,66 +792,154 @@ function fmtGiorno(key) {
   const [y, m, d] = key.split('-');
   return d + '/' + m + '/' + y;
 }
+function euro(n) { return (n < 0 ? '-' : '') + fmtEUR(Math.abs(n)) + ' €'; }
+function conSegno(n) { return (n >= 0 ? '+' : '-') + fmtEUR(Math.abs(n)) + ' €'; }
 
 function rigaSoldi(etichetta, valore, classe) {
   return '<div class="quadro-row' + (classe ? ' ' + classe : '') + '"><span>' + escapeHtml(etichetta) + '</span><strong>' + escapeHtml(valore) + '</strong></div>';
 }
+function riquadro(titolo, corpo) {
+  return '<div class="quadro-box"><div class="quadro-title">' + escapeHtml(titolo) + '</div>' + corpo + '</div>';
+}
+function righe(list) { return '<div class="quadro-rows">' + list.join('') + '</div>'; }
 
-function testoChiusura(c) {
-  return (c.saldo >= 0 ? '+' : '-') + fmtEUR(Math.abs(c.saldo)) + ' €';
+function barra(id, speso, budget) {
+  const c = getCategory(id) || { name: id, color: '#64748b' };
+  const pct = budget > 0 ? Math.min(speso / budget * 100, 100) : 0;
+  const stato = budget > 0 && speso >= budget ? 'cat-over' : (budget > 0 && speso >= budget * 0.8 ? 'cat-warn' : '');
+  return '<div class="cat-row ' + stato + '">' +
+    '<div class="cat-row-head">' +
+    '<span class="cat-dot" style="background:' + c.color + '"></span>' +
+    '<span class="cat-name">' + escapeHtml(c.name) + '</span>' +
+    '<span class="cat-amount">' + fmtEUR(speso) + ' € / ' + fmtEUR(budget) + ' €</span>' +
+    '</div>' +
+    '<div class="cat-bar"><div class="cat-bar-fill" style="width:' + pct + '%;background:' + c.color + '"></div></div>' +
+    '</div>';
 }
 
-function renderMoneyBox(meseCorrente) {
-  const box = document.getElementById('money-box');
-  if (!box) return;
-  if (!meseCorrente) { box.classList.add('hidden'); return; }
-  const m = BudgetCalcoli.metriche(datiCalcolo(), new Date());
+function rigaScadenza(s) {
+  const quando = s.date ? fmtGiorno(s.date) : 'da pagare';
+  const nota = s.finanziata ? ' · già su Fineco' : (s.daRiserva ? ' · dalla riserva' : '');
+  return rigaSoldi(s.name + ' (' + quando + nota + ')', fmtEUR(s.amount) + ' €', s.scaduta || !s.date ? 'riga-negativa' : '');
+}
 
-  if (m.soldiOra != null) {
-    const heroEl = document.getElementById('hero-residuo');
-    const heroSub = document.getElementById('hero-sub');
-    const heroPace = document.getElementById('hero-pace');
-    const negativo = m.puoiSpendere < 0;
-    document.querySelector('.hero-label').textContent = 'Puoi spendere fino a fine mese';
-    heroEl.textContent = (negativo ? '-' : '') + fmtEUR(Math.abs(m.puoiSpendere)) + ' €';
-    heroEl.classList.toggle('hero-negative', negativo);
-    document.querySelector('.hero-card').classList.toggle('hero-card-negative', negativo);
-    heroSub.textContent = m.limite === 'soldi' ? 'Comandano i soldi che hai davvero.' : 'Comandano i tetti del mese.';
-    heroSub.classList.remove('hidden');
-    if (m.chiusuraOggi) {
-      const gg = m.giorniRestanti === 1 ? '1 giorno' : m.giorniRestanti + ' giorni';
-      heroPace.innerHTML =
-        '<span>Oggi puoi spendere</span>' +
-        '<span class="pace-value">' + fmtEUR(m.chiusuraOggi.quota) + ' €</span>' +
-        '<span class="pace-meta">restano ' + gg + '</span>';
-      heroPace.classList.remove('hidden');
-    }
+function htmlCassaforte(c) {
+  if (!c) return '<p class="money-hint">Manda a Claude il saldo di Tinaba: da lì l’app calcola la parte libera.</p>';
+  const r = [rigaSoldi('Saldo', euro(c.saldo))];
+  r.push(rigaSoldi('− Riserva per l’imposta', fmtEUR(Math.max(c.riservaImposta - c.riservaFinanziata, 0)) + ' €', 'neg'));
+  r.push(rigaSoldi('− Scadenze dei prossimi 12 mesi', fmtEUR(c.scadenzeDestinate) + ' €', 'neg'));
+  r.push(rigaSoldi('− Risparmio messo da parte', fmtEUR(c.risparmio) + ' €', 'neg'));
+  r.push(rigaSoldi('= Libero', euro(c.libero), 'quadro-margin ' + (c.libero >= 0 ? 'quadro-good' : 'quadro-bad')));
+  let nota = 'Saldo di Tinaba dichiarato il ' + fmtGiorno(c.dataSaldo) + '.';
+  if (c.entrateDaSistemare || c.speseDaSistemare) {
+    const parti = [];
+    if (c.entrateDaSistemare) parti.push('+' + fmtEUR(c.entrateDaSistemare) + ' € di entrate');
+    if (c.speseDaSistemare) parti.push('−' + fmtEUR(c.speseDaSistemare) + ' € di spese');
+    nota += ' Comprende ' + parti.join(' e ') + ' che passano col prossimo bonifico.';
   }
+  return righe(r) + '<p class="money-hint">' + escapeHtml(nota) + '</p>';
+}
 
-  const righe = [];
-  if (m.chiusuraOggi) {
-    righe.push(rigaSoldi('Oggi: speso ' + fmtEUR(m.chiusuraOggi.speso) + ' €', testoChiusura(m.chiusuraOggi), m.chiusuraOggi.saldo < 0 ? 'riga-negativa' : 'riga-positiva'));
-  }
-  if (m.chiusuraIeri) {
-    righe.push(rigaSoldi('Ieri hai chiuso', testoChiusura(m.chiusuraIeri), m.chiusuraIeri.saldo < 0 ? 'riga-negativa' : 'riga-positiva'));
-  }
-  if (m.soldiOra != null) {
-    righe.push(rigaSoldi('Soldi ora', fmtEUR(m.soldiOra) + ' €'));
-    righe.push(rigaSoldi('Impegni del mese', fmtEUR(m.impegniMese) + ' €'));
-    if (m.impegniFuturi > 0) righe.push(rigaSoldi('Rate dei mesi prossimi', fmtEUR(m.impegniFuturi) + ' €'));
-    righe.push(rigaSoldi('Riserva tasse (non spendibile)', fmtEUR(m.riservaTasse) + ' €'));
-    righe.push(rigaSoldi('Con questi soldi arrivi fino al', fmtGiorno(m.autonomiaData)));
+function renderHome() {
+  const home = document.getElementById('home-content');
+  if (!home) return;
+  const q = BudgetCalcoli.quadro(datiCalcolo(), new Date());
+  const sl = q.speseLibere;
+  const heroCard = document.querySelector('.hero-card');
+  const heroLabel = document.getElementById('hero-label');
+  const heroEl = document.getElementById('hero-residuo');
+  const heroSub = document.getElementById('hero-sub');
+  const heroPace = document.getElementById('hero-pace');
+
+  if (q.primaDellAvvio) {
+    heroLabel.textContent = 'Spese libere da ' + monthLabel(dateFromISO(q.avvio));
+    heroEl.textContent = fmtEUR(sl.budget) + ' €';
+    heroEl.classList.remove('hero-negative');
+    heroCard.classList.remove('hero-card-negative');
+    heroSub.textContent = 'Il conteggio parte il ' + fmtGiorno(q.avvio) + ': da quel giorno qui vedi quanto puoi spendere oggi.';
+    heroPace.classList.add('hidden');
   } else {
-    righe.push('<p class="money-hint">Scrivi a Claude il tuo saldo reale: da quel momento il numero tiene conto dei soldi veri, non solo dei tetti.</p>');
+    const negativo = sl.restaOggi < 0;
+    heroLabel.textContent = 'Oggi puoi spendere';
+    heroEl.textContent = euro(sl.restaOggi);
+    heroEl.classList.toggle('hero-negative', negativo);
+    heroCard.classList.toggle('hero-card-negative', negativo);
+    const gg = sl.giorniRestanti === 1 ? '1 giorno' : sl.giorniRestanti + ' giorni';
+    heroSub.textContent = sl.resto >= 0
+      ? 'Restano ' + fmtEUR(sl.resto) + ' € di spese libere fino a fine mese (' + gg + ').'
+      : 'Spese libere del mese superate di ' + fmtEUR(-sl.resto) + ' €.';
+    const pace = [];
+    if (sl.spesoOggi > 0) pace.push('<span>Oggi speso ' + fmtEUR(sl.spesoOggi) + ' € su ' + fmtEUR(sl.quotaOggi) + ' €</span>');
+    if (sl.chiusuraIeri) pace.push('<span>Ieri hai chiuso</span><span class="pace-value">' + conSegno(sl.chiusuraIeri.saldo) + '</span>');
+    heroPace.innerHTML = pace.join('<span class="pace-meta">·</span>');
+    heroPace.classList.toggle('hidden', pace.length === 0);
   }
-  const entrate = [];
-  m.entrateInRitardo.forEach(v => entrate.push(rigaSoldi('In ritardo: ' + v.name + ' (' + fmtGiorno(v.expectedDate) + ')', fmtEUR(v.netto) + ' €', 'riga-negativa')));
-  m.entrateInArrivo.forEach(v => entrate.push(rigaSoldi('In arrivo: ' + v.name + ' (' + fmtGiorno(v.expectedDate) + ')', fmtEUR(v.netto) + ' €')));
+  heroSub.classList.remove('hidden');
+
+  const parti = [];
+  if (!q.primaDellAvvio) {
+    parti.push(riquadro('Spesa e benzina', '<div class="categories-list">' + q.barre.map(b => barra(b.id, b.speso, b.budget)).join('') + '</div>'));
+    const p = q.portafoglio;
+    parti.push(riquadro('Il mese', righe([
+      rigaSoldi('Portafoglio del mese', fmtEUR(p.mensile) + ' €'),
+      rigaSoldi('− Già speso', fmtEUR(p.speso) + ' €', 'neg'),
+      rigaSoldi('− Fisse ancora da uscire', fmtEUR(p.fisseDaUscire) + ' €', 'neg'),
+      rigaSoldi('= Resta', euro(p.resto), 'quadro-margin ' + (p.resto >= 0 ? 'quadro-good' : 'quadro-bad'))
+    ])));
+  }
+  parti.push(riquadro('Cassaforte', htmlCassaforte(q.cassaforte)));
+  if (q.scadenze.length) {
+    const altre = q.scadenze.length > 5 ? '<p class="money-hint">Tutte le scadenze sono in «Come funziona».</p>' : '';
+    parti.push(riquadro('Prossime scadenze', righe(q.scadenze.slice(0, 5).map(rigaScadenza)) + altre));
+  }
+  const e = q.entrateAttese;
+  if (e.inRitardo.length || e.inArrivo.length) {
+    const riga = (v, ritardo) => rigaSoldi(v.name + ' (' + (v.expectedDate ? (ritardo ? 'in ritardo, ' : '') + fmtGiorno(v.expectedDate) : 'senza data') + ')',
+      fmtEUR(v.lordo) + ' €' + (v.isGross ? ' lordi' : ''), ritardo ? 'riga-negativa' : '');
+    parti.push(riquadro('Entrate attese, non contate', righe(e.inRitardo.map(v => riga(v, true)).concat(e.inArrivo.map(v => riga(v, false))))));
+  }
+  if (q.ultimoMovimento) parti.push('<p class="money-hint home-ultimo">Ultimo movimento registrato: ' + escapeHtml(fmtGiorno(q.ultimoMovimento)) + '</p>');
+  home.innerHTML = parti.join('');
+}
+
+// ============================================================
+// COME FUNZIONA: budget, fisse, scadenze e regola del bonifico, in sola lettura
+// ============================================================
+function renderComeFunziona() {
+  const box = document.getElementById('come-content');
+  if (!box) return;
+  const dati = datiCalcolo();
+  const q = BudgetCalcoli.quadro(dati, new Date());
+  const settings = dati.settings || {};
+  const fisse = activeOnly(dati.recurring).filter(r => r.active !== false);
+  const totFisse = fisse.reduce((a, r) => a + (Number(r.amount) || 0), 0);
+  const budget = q.barre.slice(0, 1).concat([{ id: 'spese-libere', budget: q.speseLibere.budget }], q.barre.slice(1))
+    .map(b => rigaSoldi((getCategory(b.id) || {}).name || b.id, fmtEUR(b.budget) + ' €'));
+  budget.push(rigaSoldi('Spese fisse (abbonamenti, casa, lavoro)', fmtEUR(totFisse) + ' €'));
+  budget.push(rigaSoldi('= Portafoglio del mese', fmtEUR(q.portafoglio.mensile) + ' €', 'quadro-margin quadro-good'));
+
+  const stato = {};
+  q.portafoglio.fisseUscite.forEach(f => { stato[f.id] = 'uscita: ' + fmtEUR(f.amount) + ' €'; });
+  const righeFisse = fisse.slice().sort((a, b) => (a.dayOfMonth || 0) - (b.dayOfMonth || 0)).map(r =>
+    rigaSoldi(r.name + ' (giorno ' + r.dayOfMonth + ', ' + (stato[r.id] || 'da uscire') + ')', fmtEUR(r.amount) + ' €'));
+
+  const medie = settings.medie || {};
+  const righeMedie = Object.keys(medie).map(id => rigaSoldi(((getCategory(id) || {}).name || id) + ' (media)', fmtEUR(medie[id]) + ' € al mese'));
+  const risparmio = settings.risparmio || {};
+  const pct = settings.taxPctDefault != null ? settings.taxPctDefault : 12;
+  const testoCassaforte = '<p class="money-hint">La cassaforte tiene da parte il ' + pct +
+    '% di ogni fattura lorda per l’imposta, i soldi delle scadenze dei prossimi 12 mesi' +
+    (risparmio.mensile ? ' e ' + fmtEUR(risparmio.mensile) + ' € al mese di risparmio' + (risparmio.dal ? ' da ' + monthLabel(dateFromISO(risparmio.dal + '-01')) : '') : '') +
+    '. Salute, auto, veterinario e regali si pagano dalla cassaforte quando capitano: le medie servono solo per orientarsi.</p>';
+
   box.innerHTML =
-    '<div class="quadro-title">I tuoi soldi</div><div class="quadro-rows">' + righe.join('') + '</div>' +
-    (entrate.length ? '<div class="quadro-title money-sub">Entrate non ancora nel conto</div><div class="quadro-rows">' + entrate.join('') + '</div>' : '') +
-    (m.ultimoMovimento ? '<p class="money-hint">Ultimo movimento registrato: ' + escapeHtml(fmtGiorno(m.ultimoMovimento)) + '</p>' : '');
-  box.classList.remove('hidden');
+    riquadro('Il portafoglio del mese', righe(budget) + '<p class="money-hint">I numeri li tiene Claude: per cambiarli diglielo in chat.</p>') +
+    riquadro('Le fisse di ' + monthLabel(new Date()), righe(righeFisse) + '<p class="money-hint">Una fissa conta fra quelle «da uscire» finché Claude non registra la spesa vera; se in un mese salta, non conta.</p>') +
+    riquadro('La cassaforte', (righeMedie.length ? righe(righeMedie) : '') + testoCassaforte) +
+    riquadro('Tutte le scadenze', q.scadenze.length ? righe(q.scadenze.map(rigaScadenza)) : '<p class="money-hint">Nessuna scadenza.</p>') +
+    riquadro('Il bonifico di inizio mese', '<p class="money-hint">Il primo del mese mandi a Claude il saldo di Fineco e tutti i contanti. Claude risponde con un solo bonifico: da Tinaba a Fineco se il portafoglio è sotto i ' +
+      fmtEUR(q.portafoglio.mensile) + ' €, da Fineco a Tinaba se è sopra (per esempio perché è arrivata un’entrata). Lo stesso bonifico porta su Fineco i soldi delle scadenze del mese.</p>') +
+    '<p class="money-hint">Le entrate attese (Manlio, ADT, Michelle) non entrano nei conti finché i soldi non arrivano.</p>';
 }
 
 // ============================================================
@@ -1253,30 +950,27 @@ function renderDiagnosi() {
   if (!c) return;
   const d = BudgetCalcoli.diagnosi(datiCalcolo(), monthKey(currentMonth));
   document.getElementById('diagnosi-month').textContent = monthLabel(currentMonth);
-  const sezione = (titolo, righe) => righe.length
-    ? '<div class="quadro-box"><div class="quadro-title">' + escapeHtml(titolo) + '</div><div class="quadro-rows">' + righe.join('') + '</div></div>'
-    : '';
+  const sezione = (titolo, r) => r.length ? riquadro(titolo, righe(r)) : '';
   const avviso = d.giorniConSpese < 7
     ? '<p class="money-hint diagnosi-avviso">Spese registrate in ' + d.giorniConSpese + (d.giorniConSpese === 1 ? ' giorno' : ' giorni') + ': i totali sono ancora parziali.</p>'
     : '';
   const totali = [
-    rigaSoldi('Totale del mese', fmtEUR(d.totale) + ' €'),
-    rigaSoldi('Spese fisse', fmtEUR(d.fisse) + ' €'),
+    rigaSoldi('Portafoglio: speso', fmtEUR(d.portafoglio.speso) + ' € / ' + fmtEUR(d.portafoglio.mensile) + ' €', d.portafoglio.speso > d.portafoglio.mensile ? 'riga-negativa' : ''),
     rigaSoldi('Spese variabili', fmtEUR(d.variabili) + ' €'),
-    rigaSoldi('Riferimento mensile', fmtEUR(d.spesaMensileRiferimento) + ' €')
+    rigaSoldi('Spese fisse', fmtEUR(d.fisse) + ' €'),
+    rigaSoldi('Dalla cassaforte', fmtEUR(d.cassaforte) + ' €'),
+    rigaSoldi('Totale del mese', fmtEUR(d.totale) + ' €')
   ];
   const categorie = d.categorie.map(x => rigaSoldi(
     x.name + (x.sforo > 0 ? ' (oltre di ' + fmtEUR(x.sforo) + ' €)' : ''),
-    fmtEUR(x.speso) + ' €' + (x.tetto > 0 ? ' / ' + fmtEUR(x.tetto) + ' €' : ''),
+    fmtEUR(x.speso) + ' €' + (x.budget > 0 ? ' / ' + fmtEUR(x.budget) + ' €' : ''),
     x.sforo > 0 ? 'riga-negativa' : ''
   ));
   const metodi = d.perMetodo.map(x => rigaSoldi(x.metodo.charAt(0).toUpperCase() + x.metodo.slice(1), fmtEUR(x.importo) + ' €'));
-  const rate = d.acquistiARate.map(r => rigaSoldi(r.name + ' (' + r.count + ' rate)', fmtEUR(r.total) + ' €'));
-  if (d.quoteRate > 0) rate.push(rigaSoldi('Rate pagate o dovute questo mese', fmtEUR(d.quoteRate) + ' €'));
-  const entrate = d.entrateArrivate.map(v => rigaSoldi(v.name + ' (arrivata)', fmtEUR(v.netto) + ' €'))
-    .concat(d.entrateAttese.map(v => rigaSoldi(v.name + ' (attesa)', fmtEUR(v.netto) + ' €')));
+  const entrate = d.entrateArrivate.map(v => rigaSoldi(v.name + ' (arrivata)', fmtEUR(v.lordo) + ' €'))
+    .concat(d.entrateAttese.map(v => rigaSoldi(v.name + ' (attesa)', fmtEUR(v.lordo) + ' €')));
   c.innerHTML = avviso + sezione('Totali', totali) + sezione('Per categoria', categorie) +
-    sezione('Per modo di pagamento', metodi) + sezione('Rate', rate) + sezione('Entrate nette', entrate);
+    sezione('Per modo di pagamento', metodi) + sezione('Entrate', entrate);
 }
 
 function bindDiagnosi() {
@@ -1299,7 +993,7 @@ function renderMovements() {
   else list.sort((a, b) => +new Date(b.date) - +new Date(a.date));
   const c = document.getElementById('movements-list');
   if (list.length === 0) {
-    c.innerHTML = '<p class="empty-msg">Nessun movimento manuale in questo mese. Spunta "Mostra abbonamenti" per vedere anche i ricorrenti automatici.</p>';
+    c.innerHTML = '<p class="empty-msg">Nessun movimento in questo mese.</p>';
     return;
   }
   c.innerHTML = list.map(m => {
@@ -1311,7 +1005,9 @@ function renderMovements() {
       '<div class="movement-body">' +
       '<div class="movement-top">' +
       '<span class="cat-badge" style="background:' + (cat ? cat.color : '#888') + '">' + escapeHtml(cat ? cat.name : '?') + '</span>' +
-      (m.isRecurring ? '<span class="badge-recurring">ricorr.</span>' : '') +
+      (m.isRecurring ? '<span class="badge-recurring">automatica</span>' : '') +
+      (m.recurringId && !m.isRecurring ? '<span class="badge-recurring">fissa</span>' : '') +
+      (m.method ? '<span class="badge-split">' + escapeHtml(m.method) + '</span>' : '') +
       (m.splitGroupId ? '<span class="badge-split">split</span>' : '') +
       '</div>' +
       (m.note ? '<div class="movement-note">' + escapeHtml(m.note) + '</div>' : '') +
@@ -1478,190 +1174,13 @@ function renderRecurring() {
 }
 
 // ============================================================
-// BUDGET (tetti + sinking)
-// ============================================================
-function renderCaps() {
-  const c = document.getElementById('caps-list');
-  c.innerHTML = CATEGORIES.filter(cat => !cat.fixed && !cat.hidden).map(cat =>
-    '<div class="cap-row">' +
-    '<span class="cap-dot" style="background:' + cat.color + '"></span>' +
-    '<label class="cap-label">' + cat.name + '</label>' +
-    '<input type="number" step="1" min="0" data-id="' + cat.id + '" class="cap-input" value="' + (cachedCaps[cat.id] || 0) + '" inputmode="numeric" />' +
-    '<span class="cap-unit">€/mese</span>' +
-    '</div>'
-  ).join('');
-}
-
-function bindBudget() {
-  document.getElementById('save-caps').addEventListener('click', function () {
-    const inputs = document.querySelectorAll('.cap-input');
-    const values = { ...cachedCaps };
-    // Math.max(0, ...): un tetto negativo (il bottone e' fuori dal form, il min=0
-    // HTML non viene validato) falserebbe il residuo. Bug B10 dell'audit.
-    inputs.forEach(i => { values[i.dataset.id] = Math.max(0, parseFloat(i.value) || 0); });
-    CATEGORIES.forEach(c => { if (c.fixed) values[c.id] = 0; });
-    saveCaps(values);
-    cachedCaps = values;
-    renderMonth();
-    showToast('Tetti salvati');
-  });
-
-  document.getElementById('sinking-form').addEventListener('submit', function (e) {
-    e.preventDefault();
-    const name = document.getElementById('sink-name').value.trim();
-    const amount = parseFloat(document.getElementById('sink-amount').value);
-    const note = document.getElementById('sink-note').value.trim();
-    if (!name) { showToast('Inserisci un nome.', true); return; }
-    if (!(amount > 0)) { showToast('Inserisci un importo maggiore di zero.', true); return; }
-    cachedSinking.push({ id: uuid(), name: name, amount: amount, note: note, _modTs: Date.now() });
-    const ok = saveSinking(cachedSinking);
-    if (!ok) { showToast('Errore: NON salvato.', true); return; }
-    e.target.reset();
-    renderSinking();
-    showToast('Accantonamento aggiunto');
-  });
-
-  document.getElementById('sinking-list').addEventListener('click', function (e) {
-    const btn = e.target.closest('[data-action="del-sink"]');
-    if (!btn) return;
-    const id = btn.dataset.id;
-    const it = cachedSinking.find(s => s.id === id);
-    if (it && confirm('Eliminare "' + it.name + '"?')) {
-      // Tombstone su localStorage, cache rimuove solo l'attivo.
-      const all = loadSinking().map(s => s.id === id ? { ...s, _deleted: true, _modTs: Date.now() } : s);
-      const ok = saveSinking(all);
-      if (!ok) { showToast('Errore: NON eliminato.', true); return; }
-      cachedSinking = activeOnly(all);
-      renderSinking();
-    }
-  });
-}
-
-function renderIncome() {
-  const c = document.getElementById('income-list');
-  if (cachedIncome.length === 0) {
-    c.innerHTML = '<p class="empty-msg">Nessuna entrata configurata.</p>';
-    return;
-  }
-  const totale = cachedIncome.reduce((a, s) => a + (s.amount || 0), 0);
-  c.innerHTML = '<div class="sink-total income-total">Totale entrate stimate: <strong>' + fmtEUR(totale) + ' &euro;/mese</strong></div>' +
-    cachedIncome.map(s =>
-      '<div class="sink-item sink-item-clickable" data-id="' + s.id + '">' +
-      '<div class="sink-info">' +
-      '<div class="sink-name">' + escapeHtml(s.name) + '</div>' +
-      (s.note ? '<div class="sink-note">' + escapeHtml(s.note) + '</div>' : '') +
-      '</div>' +
-      '<div class="sink-amount">' + fmtEUR(s.amount) + ' &euro;</div>' +
-      '<button class="btn-small" data-action="edit-income" data-id="' + s.id + '">Modifica</button>' +
-      '</div>'
-    ).join('');
-}
-
-function bindIncome() {
-  document.getElementById('income-form').addEventListener('submit', function (e) {
-    e.preventDefault();
-    const name = document.getElementById('inc-name').value.trim();
-    const amount = parseFloat(document.getElementById('inc-amount').value);
-    const note = document.getElementById('inc-note').value.trim();
-    if (!name) { showToast('Inserisci un nome.', true); return; }
-    if (!(amount > 0)) { showToast('Inserisci un importo maggiore di zero.', true); return; }
-    cachedIncome.push({ id: uuid(), name: name, amount: amount, note: note, _modTs: Date.now() });
-    const ok = saveIncome(cachedIncome);
-    if (!ok) { showToast('Errore: NON salvato.', true); return; }
-    e.target.reset();
-    renderIncome();
-    renderMonth();
-    showToast('Entrata aggiunta');
-  });
-
-  document.getElementById('income-list').addEventListener('click', function (e) {
-    const editBtn = e.target.closest('[data-action="edit-income"]');
-    if (editBtn) { openEditIncome(editBtn.dataset.id); return; }
-    const item = e.target.closest('.sink-item-clickable');
-    if (item && item.dataset.id) {
-      openEditIncome(item.dataset.id);
-    }
-  });
-}
-
-let editingIncomeId = null;
-function openEditIncome(id) {
-  const inc = cachedIncome.find(s => s.id === id);
-  if (!inc) return;
-  editingIncomeId = id;
-  document.getElementById('edit-inc-name-input').value = inc.name;
-  document.getElementById('edit-inc-amount-input').value = inc.amount;
-  document.getElementById('edit-inc-note-input').value = inc.note || '';
-  document.getElementById('edit-income-modal').classList.remove('hidden');
-}
-function closeEditIncome() {
-  editingIncomeId = null;
-  document.getElementById('edit-income-modal').classList.add('hidden');
-}
-function bindEditIncome() {
-  document.getElementById('edit-inc-form').addEventListener('submit', function (e) {
-    e.preventDefault();
-    if (!editingIncomeId) return;
-    const inc = cachedIncome.find(s => s.id === editingIncomeId);
-    if (!inc) return;
-    const newIncAmount = parseFloat(document.getElementById('edit-inc-amount-input').value);
-    inc.name = document.getElementById('edit-inc-name-input').value.trim() || inc.name;
-    inc.amount = isNaN(newIncAmount) ? inc.amount : newIncAmount;
-    inc.note = document.getElementById('edit-inc-note-input').value.trim();
-    inc._modTs = Date.now();
-    const ok = saveIncome(cachedIncome);
-    if (!ok) { showToast('Errore: modifica NON salvata.', true); return; }
-    closeEditIncome();
-    renderIncome();
-    renderMonth();
-    showToast('Entrata aggiornata');
-  });
-  document.getElementById('cancel-edit-inc').addEventListener('click', closeEditIncome);
-  document.getElementById('delete-edit-inc').addEventListener('click', function () {
-    if (!editingIncomeId) return;
-    const inc = cachedIncome.find(s => s.id === editingIncomeId);
-    if (!inc) return;
-    if (confirm('Eliminare "' + inc.name + '"?')) {
-      const all = loadIncome().map(s => s.id === editingIncomeId ? { ...s, _deleted: true, _modTs: Date.now() } : s);
-      const ok = saveIncome(all);
-      if (!ok) { showToast('Errore: NON eliminato.', true); return; }
-      cachedIncome = activeOnly(all);
-      closeEditIncome();
-      renderIncome();
-      renderMonth();
-      showToast('Entrata eliminata');
-    }
-  });
-}
-
-function renderSinking() {
-  const c = document.getElementById('sinking-list');
-  if (cachedSinking.length === 0) {
-    c.innerHTML = '<p class="empty-msg">Nessun accantonamento configurato.</p>';
-    return;
-  }
-  const totale = cachedSinking.reduce((a, s) => a + (s.amount || 0), 0);
-  c.innerHTML = '<div class="sink-total">Totale accantonamenti: <strong>' + fmtEUR(totale) + ' €/mese</strong></div>' +
-    cachedSinking.map(s =>
-      '<div class="sink-item">' +
-      '<div class="sink-info">' +
-      '<div class="sink-name">' + escapeHtml(s.name) + '</div>' +
-      (s.note ? '<div class="sink-note">' + escapeHtml(s.note) + '</div>' : '') +
-      '</div>' +
-      '<div class="sink-amount">' + fmtEUR(s.amount) + ' €</div>' +
-      '<button class="btn-small btn-danger" data-action="del-sink" data-id="' + s.id + '" aria-label="Elimina">&times;</button>' +
-      '</div>'
-    ).join('');
-}
-
-// ============================================================
 // NAV
 // ============================================================
 const screenTitles = {
-  'month-screen': 'Dashboard',
+  'month-screen': 'Budget',
   'movements-screen': 'Movimenti',
-  'recurring-screen': 'Spese ricorrenti',
-  'budget-screen': 'Budget e accantonamenti',
+  'recurring-screen': 'Spese fisse',
+  'budget-screen': 'Come funziona',
   'diagnosi-screen': 'Diagnosi'
 };
 
@@ -1679,8 +1198,11 @@ function bindNav() {
 }
 
 function populateCategoryDropdowns() {
-  const visible = CATEGORIES.filter(c => !c.hidden);
-  const options = visible.map(c => '<option value="' + c.id + '">' + c.name + '</option>').join('');
+  // Le categorie raggruppate: portafoglio, fisse, cassaforte.
+  const options = Object.keys(GROUP_LABELS).map(g =>
+    '<optgroup label="' + GROUP_LABELS[g] + '">' +
+    CATEGORIES.filter(c => c.group === g).map(c => '<option value="' + c.id + '">' + c.name + '</option>').join('') +
+    '</optgroup>').join('');
   ['add-category', 'rec-category', 'edit-rec-category'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.innerHTML = '<option value="">Seleziona...</option>' + options;
@@ -1717,37 +1239,19 @@ async function startApp() {
   migrateCategories();
   purgeOldTombstones();
   cachedRecurring = activeOnly(loadRecurring());
-  ensureRecurringForMonth();
-  cachedRecurring = activeOnly(loadRecurring());
   cachedMovements = filterMovementsByMonth(currentMonth);
-  cachedCaps = loadCaps();
-  cachedSinking = activeOnly(loadSinking());
-  cachedIncome = activeOnly(loadIncome());
   document.getElementById('add-date').value = todayISO();
   renderMonth();
   renderMovements();
   renderRecurring();
-  renderCaps();
-  renderSinking();
-  renderIncome();
+  renderComeFunziona();
   BudgetCoda.sincronizza();
-}
-
-function bindFixedBox() {
-  ['fixed-box', 'free-box'].forEach(id => {
-    const el = document.getElementById(id);
-    if (!el) return;
-    el.addEventListener('click', function () {
-      el.classList.toggle('fixed-box-expanded');
-    });
-  });
 }
 
 function bindModalBackdrops() {
   const pairs = [
     ['add-modal', closeAddModal],
     ['edit-recurring-modal', closeEditRecurring],
-    ['edit-income-modal', closeEditIncome],
     ['coda-modal', function () { BudgetCoda.chiudi(); }],
     ['split-modal', function () { document.getElementById('split-modal').classList.add('hidden'); }]
   ];
@@ -1874,11 +1378,7 @@ function boot() {
   bindMonthNav();
   bindMovements();
   bindRecurring();
-  bindBudget();
-  bindIncome();
   bindEditRecurring();
-  bindEditIncome();
-  bindFixedBox();
   bindModalBackdrops();
   bindNav();
   bindLogout();
