@@ -851,7 +851,7 @@ function htmlCassaforte(c) {
 // PATRIMONIO: fotografie dei saldi (settings.patrimonio.storico), una per volta che Claude le registra
 // ============================================================
 const MESI_BREVI = ['gen', 'feb', 'mar', 'apr', 'mag', 'giu', 'lug', 'ago', 'set', 'ott', 'nov', 'dic'];
-function totalePatrimonio(f) { return (+f.fineco || 0) + (+f.contanti || 0) + (+f.tinaba || 0) + (+f.azioni || 0); }
+function totalePatrimonio(f) { return (+f.fineco || 0) + (+f.contanti || 0) + (+f.busta || 0) + (+f.tinaba || 0) + (+f.azioni || 0); }
 
 function graficoPatrimonio(mesi) {
   // Due linee: i soldi che hai (continua) e il totale con i crediti netti (tratteggiata).
@@ -904,12 +904,13 @@ function htmlPatrimonio() {
   const fondo = qq.cassaforte ? qq.cassaforte.risparmio : 0;
   const liquidita = (+f.fineco || 0) + (+f.contanti || 0) + Math.max((+f.tinaba || 0) - fondo, 0);
   const testa = '<div class="pat-liquidita"><span>Liquidità</span><strong>' + escapeHtml(fmtEUR(liquidita) + ' €') + '</strong>' +
-    '<p>Fineco, contanti e Tinaba oltre il fondo emergenze, al ' + escapeHtml(fmtGiorno(f.data)) + '. Fuori: fondo, azioni e crediti.</p></div>';
+    '<p>Conto Fineco, contanti e Tinaba oltre il fondo emergenze, al ' + escapeHtml(fmtGiorno(f.data)) + '. Fuori: fondo, azioni, crediti e la busta dei tuoi sfizi.</p></div>';
   const r = [
-    rigaSoldi('Fineco, conto', fmtEUR(+f.fineco || 0) + ' €'),
+    rigaSoldi('Conto Fineco', fmtEUR(+f.fineco || 0) + ' €'),
     rigaSoldi('Contanti', fmtEUR(+f.contanti || 0) + ' €'),
-    rigaSoldi('Tinaba, cassaforte e fondo emergenze', fmtEUR(+f.tinaba || 0) + ' €'),
-    rigaSoldi('Azioni', fmtEUR(+f.azioni || 0) + ' €'),
+    rigaSoldi('Busta dei tuoi sfizi', fmtEUR(+f.busta || 0) + ' €'),
+    rigaSoldi('Conto Tinaba (cassaforte e fondo emergenze)', fmtEUR(+f.tinaba || 0) + ' €'),
+    rigaSoldi('Azioni Fineco', fmtEUR(+f.azioni || 0) + ' €'),
     rigaSoldi('= Soldi che hai', fmtEUR(tot) + ' €', 'quadro-margin')
   ];
   if (cr.length) {
@@ -934,7 +935,7 @@ function htmlPatrimonio() {
   }
   const nota = 'Saldi del ' + fmtGiorno(f.data) + ', crediti al ' + fmtGiorno(oggi) + ': un mese di lavoro conta dal primo del mese dopo, al netto di tasse e commercialista. ' +
     (mesi.length < 2 ? 'Il grafico si riempie un mese alla volta: ogni primo del mese Claude aggiunge un punto quando gli mandi i saldi. ' : '') +
-    'La busta dei tuoi sfizi e i soldi di Michelle restano fuori.';
+    'I soldi di Michelle restano fuori.';
   return riquadro('Patrimonio', testa + righe(r) + confronto + graficoPatrimonio(mesi) + '<p class="money-hint">' + escapeHtml(nota) + '</p>');
 }
 
