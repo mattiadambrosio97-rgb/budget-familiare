@@ -928,7 +928,7 @@ function htmlPatrimonio() {
   }
   const nota = 'Saldi del ' + fmtGiorno(f.data) + ', crediti al ' + fmtGiorno(oggi) + ': un mese di lavoro conta dal primo del mese dopo, al netto di tasse e commercialista. ' +
     (mesi.length < 2 ? 'Il grafico si riempie un mese alla volta: ogni primo del mese Claude aggiunge un punto quando gli mandi i saldi. ' : '') +
-    'La busta dei tuoi sfizi e i soldi di Michelle restano fuori; il TFR di ADT è a parte, fuori dal totale, finché non arriva.';
+    'La busta dei tuoi sfizi e i soldi di Michelle restano fuori.';
   return riquadro('Patrimonio', righe(r) + confronto + graficoPatrimonio(mesi) + '<p class="money-hint">' + escapeHtml(nota) + '</p>');
 }
 
