@@ -989,3 +989,16 @@ select { appearance: none; -webkit-appearance: none; background-image: url("data
 .credito .quadro-row span, .credito .quadro-row strong { color: var(--text-muted); font-weight: 500; }
 .credito-nota { font-size: 13px; color: var(--text-muted); margin-top: 6px; line-height: 1.45; }
 .credito-totale .credito-nome { font-size: 15px; }
+
+/* Più stretta in orizzontale: Home a 1000 px, le schermate a una colonna a 760 px */
+@media (min-width: 1000px) {
+  .app-screen, .app-header, .bottom-nav { max-width: 1000px; }
+  #movements-screen, #recurring-screen, #diagnosi-screen { max-width: 760px; }
+}
+
+/* Fisse compatte su schermi larghi: nome, importo e pulsanti sulla stessa riga */
+@media (min-width: 600px) {
+  .recurring-item { grid-template-columns: 1fr auto auto; padding: 10px 14px; }
+  .recurring-item .recurring-actions { grid-column: auto; justify-self: end; }
+  .recurring-item .recurring-actions .btn-small { padding: 6px 10px; min-height: 36px; }
+}

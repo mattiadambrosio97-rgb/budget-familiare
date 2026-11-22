@@ -810,7 +810,7 @@ function barra(id, speso, budget) {
     '<div class="cat-row-head">' +
     '<span class="cat-dot" style="background:' + c.color + '"></span>' +
     '<span class="cat-name">' + escapeHtml(c.name) + '</span>' +
-    '<span class="cat-amount">' + fmtEUR(speso) + ' € / ' + fmtEUR(budget) + ' €</span>' +
+    '<span class="cat-amount">' + (budget - speso >= 0 ? 'restano ' + fmtEUR(budget - speso) : 'oltre di ' + fmtEUR(speso - budget)) + ' €</span>' +
     '</div>' +
     '<div class="cat-bar"><div class="cat-bar-fill ' + (stato === 'cat-over' ? 'bar-over' : stato === 'cat-warn' ? 'bar-giallo' : 'bar-ok') + '" style="width:' + pct + '%"></div></div>' +
     '<div class="cat-stato ' + (stato === 'cat-over' ? 'st-over">Superato' : stato === 'cat-warn' ? 'st-giallo">Quasi al limite' : 'st-ok">In linea') + '</div>' +
@@ -818,9 +818,9 @@ function barra(id, speso, budget) {
 }
 
 function rigaScadenza(s) {
-  const quando = s.date ? fmtGiorno(s.date) : 'da pagare';
-  const nota = s.finanziata ? ' · già su Fineco' : (s.daRiserva ? ' · dalla riserva' : '');
   const giorni = s.date ? Math.round((dateFromISO(s.date) - new Date(new Date().toDateString())) / 86400000) : null;
+  const quando = !s.date ? 'da pagare, senza data' : (s.scaduta ? 'scaduta il ' + giornoBreve(s.date) : (giorni === 0 ? 'oggi' : giorni === 1 ? 'domani' : giorni <= 10 ? 'fra ' + giorni + ' giorni' : giornoBreve(s.date)));
+  const nota = s.finanziata ? ', soldi già su Fineco' : (s.daRiserva ? ', dalla riserva per l’imposta' : '');
   const classe = s.scaduta || !s.date ? 'riga-negativa' : (giorni <= 10 ? 'riga-vicina' : '');
   return rigaSoldi(s.name + ' (' + quando + nota + ')', fmtEUR(s.amount) + ' €', classe);
 }
@@ -830,17 +830,17 @@ function htmlCassaforte(c) {
   // Prima il conto vero, poi il fondo che non si tocca, poi a cosa servono i soldi rimasti.
   const r = [rigaSoldi('Conto Tinaba', euro(c.saldoTinaba))];
   if (c.entrateDaSistemare) r.push(rigaSoldi('+ Entrate arrivate su Fineco', fmtEUR(c.entrateDaSistemare) + ' €'));
-  if (c.speseDaSistemare) r.push(rigaSoldi('− Spese della cassaforte pagate da Fineco', fmtEUR(c.speseDaSistemare) + ' €', 'neg'));
+  if (c.speseDaSistemare) r.push(rigaSoldi('− Spese della cassaforte anticipate da Fineco', fmtEUR(c.speseDaSistemare) + ' €', 'neg'));
   r.push(rigaSoldi('− Fondo emergenze (non si tocca)', fmtEUR(c.risparmio) + ' €', 'neg'));
-  r.push(rigaSoldi('= Disponibile in cassaforte', euro(round2(c.saldo - c.risparmio)), 'quadro-margin'));
+  r.push(rigaSoldi('= Fuori dal fondo', euro(round2(c.saldo - c.risparmio)), 'quadro-margin'));
   r.push(rigaSoldi('− Riserva per l’imposta', fmtEUR(Math.max(c.riservaImposta - c.riservaFinanziata, 0)) + ' €', 'neg'));
   r.push(rigaSoldi('− Scadenze dei prossimi 12 mesi', fmtEUR(c.scadenzeDestinate) + ' €', 'neg'));
   r.push(c.libero >= 0
     ? rigaSoldi('= Libero', euro(c.libero), 'quadro-margin quadro-good')
-    : rigaSoldi('= Da coprire con le entrate', fmtEUR(-c.libero) + ' €', 'quadro-margin quadro-arancio'));
+    : rigaSoldi('= Mancano, li coprono le prossime entrate', fmtEUR(-c.libero) + ' €', 'quadro-margin quadro-arancio'));
   let nota = 'Saldo del ' + giornoBreve(c.dataSaldo) + '.';
   const r0 = (lsRead('settings', {}).risparmio || {});
-  if (r0.mensile) nota += ' Il fondo cresce di ' + fmtEUR(r0.mensile) + ' € al mese.';
+  if (r0.mensile) nota += ' Il fondo emergenze cresce di ' + tondo(r0.mensile) + ' € al mese.';
   return righe(r) + '<p class="money-hint">' + escapeHtml(nota) + '</p>';
 }
 function round2(n) { return Math.round(n * 100) / 100; }
@@ -914,7 +914,7 @@ function htmlPatrimonio() {
     rigaSoldi('= Soldi che hai', fmtEUR(tot) + ' €', 'quadro-margin')
   ];
   if (cr.length) {
-    r.push(rigaSoldi('+ Crediti, al netto', fmtEUR(crNetto) + ' €', 'riga-credito'));
+    r.push(rigaSoldi('+ Soldi che ti devono, netti', fmtEUR(crNetto) + ' €', 'riga-credito'));
     r.push(rigaSoldi('= Patrimonio con i crediti', fmtEUR(tot + crNetto) + ' €', 'quadro-margin quadro-totale'));
   }
   for (const c of aParte) r.push(rigaSoldi('A parte, data incerta: ' + c.nome, fmtEUR(c.netto) + ' €', 'riga-aparte'));
@@ -933,7 +933,7 @@ function htmlPatrimonio() {
     const d = mesi[mesi.length - 1].totale - mesi[mesi.length - 2].totale;
     confronto = '<p class="pat-confronto ' + (d >= 0 ? 'st-ok' : 'st-over') + '">' + (d >= 0 ? 'In crescita: ' : 'In calo: ') + conSegno(d) + ' di soldi che hai rispetto al mese prima</p>';
   }
-  const nota = 'Saldi del ' + giornoBreve(f.data) + '.' + (mesi.length < 2 ? ' Il grafico mese per mese parte da dicembre.' : '');
+  const nota = 'Conti, contanti e azioni: saldi del ' + giornoBreve(f.data) + '. Si aggiornano il primo del mese.';
   return riquadro('Patrimonio', testa + righe(r) + confronto + (mesi.length >= 2 ? graficoPatrimonio(mesi) : '') + '<p class="money-hint">' + escapeHtml(nota) + '</p>');
 }
 
@@ -962,7 +962,7 @@ function htmlCrediti() {
     if (c.extra) r.push(rigaSoldi('+ ' + (c.extraNota || 'Altro'), fmtEUR(c.extra) + ' €'));
     for (const p of c.pagamenti) r.push(rigaSoldi('− Pagato' + (p.base ? (p.nota ? ' (' + p.nota + ')' : '') : ' il ' + fmtGiorno(p.data)), fmtEUR(p.lordo) + ' €', 'neg'));
     const note = [];
-    if (c.prossimo) note.push((c.lordo > 0 ? '+' : '') + tondo(c.prossimo.lordo) + ' € a ' + nomeMese(c.prossimo.data.slice(0, 7)) + ' per ' + nomeMese(c.prossimo.mese) + '.');
+    if (c.prossimo) note.push(c.lordo > 0 ? 'Dal ' + giornoBreve(c.prossimo.data) + ' si aggiunge ' + nomeMese(c.prossimo.mese) + ': +' + tondo(c.prossimo.lordo) + ' €.' : tondo(c.prossimo.lordo) + ' € a ' + nomeMese(c.prossimo.data.slice(0, 7)) + ' per ' + nomeMese(c.prossimo.mese) + '.');
     else if (c.al) note.push('Ultima rata: ' + nomeMese(c.al, true) + '.');
     if (c.nota) note.push(c.nota);
     return '<div class="credito"><div class="credito-testa"><span class="credito-nome">' + escapeHtml(c.nome) + '</span><span class="credito-tot">' + testa + '</span></div>' +
@@ -989,7 +989,7 @@ function renderHome() {
   const heroPace = document.getElementById('hero-pace');
 
   if (q.primaDellAvvio) {
-    heroLabel.textContent = 'Spese libere da ' + monthLabel(dateFromISO(q.avvio));
+    heroLabel.textContent = 'Spese libere: ogni mese';
     heroEl.textContent = fmtEUR(sl.budget) + ' €';
     heroEl.classList.remove('hero-negative');
     heroCard.classList.remove('hero-card-negative', 'hero-giallo', 'hero-arancio');
@@ -998,7 +998,7 @@ function renderHome() {
     heroPace.classList.add('hidden');
   } else {
     const negativo = sl.restaOggi < 0;
-    heroLabel.textContent = 'Oggi puoi spendere';
+    heroLabel.textContent = 'Spese libere: oggi puoi spendere';
     heroEl.textContent = euro(sl.restaOggi);
     // Stato: rosso se il mese è superato, arancione se oggi sei oltre la quota,
     // giallo se resta meno di un quarto della quota di oggi, verde altrimenti.
@@ -1018,7 +1018,7 @@ function renderHome() {
       : 'Hai superato le spese libere del mese di ' + fmtEUR(-sl.resto) + ' €.';
     const pace = [];
     if (sl.spesoOggi > 0) pace.push('<span>Oggi hai speso ' + fmtEUR(sl.spesoOggi) + ' € su ' + fmtEUR(sl.quotaOggi) + ' €</span>');
-    if (sl.chiusuraIeri) pace.push('<span>Ieri hai chiuso</span><span class="pace-value">' + conSegno(sl.chiusuraIeri.saldo) + '</span>');
+    if (sl.chiusuraIeri) pace.push('<span>Ieri</span><span class="pace-value">' + conSegno(sl.chiusuraIeri.saldo) + '</span><span>' + (sl.chiusuraIeri.saldo >= 0 ? 'risparmiati, divisi sui giorni che restano' : 'in più, tolti dai giorni che restano') + '</span>');
     heroPace.innerHTML = pace.join('<span class="pace-meta">·</span>');
     heroPace.classList.toggle('hidden', pace.length === 0);
   }
@@ -1033,11 +1033,11 @@ function renderHome() {
       rigaSoldi('Portafoglio del mese', fmtEUR(p.mensile) + ' €'),
       rigaSoldi('− Già speso', fmtEUR(p.speso) + ' €', 'neg'),
       rigaSoldi('− Fisse da pagare', fmtEUR(p.fisseDaUscire) + ' €', 'neg'),
-      rigaSoldi('= Resta', euro(p.resto), 'quadro-margin ' + (p.resto >= 0 ? 'quadro-good' : 'quadro-bad'))
+      rigaSoldi('= Resta per spesa, benzina e spese libere', euro(p.resto), 'quadro-margin ' + (p.resto >= 0 ? 'quadro-good' : 'quadro-bad'))
     ])));
   }
   if (q.scadenze.length) {
-    const altre = q.scadenze.length > 5 ? '<p class="money-hint">Le altre sono in «Come funziona».</p>' : '';
+    const altre = q.scadenze.length > 5 ? '<p class="money-hint">Tutte le scadenze sono in fondo a «Come funziona».</p>' : '';
     mese.push(riquadro('Prossime scadenze', righe(q.scadenze.slice(0, 5).map(rigaScadenza)) + altre));
   }
   mese.push(riquadro('Cassaforte', htmlCassaforte(q.cassaforte)));
@@ -1064,10 +1064,11 @@ function renderComeFunziona() {
   const budget = q.barre.slice(0, 1).concat([{ id: 'spese-libere', budget: q.speseLibere.budget }], q.barre.slice(1))
     .map(b => rigaSoldi((getCategory(b.id) || {}).name || b.id, fmtEUR(b.budget) + ' €'));
   budget.push(rigaSoldi('Spese fisse (abbonamenti, casa, lavoro)', fmtEUR(totFisse) + ' €'));
-  budget.push(rigaSoldi('= Portafoglio del mese', fmtEUR(q.portafoglio.mensile) + ' €', 'quadro-margin quadro-good'));
+  const arrotondato = Math.abs(q.barre.reduce((a, b) => a + b.budget, 0) + q.speseLibere.budget + totFisse - q.portafoglio.mensile) >= 0.01;
+  budget.push(rigaSoldi('= Portafoglio del mese' + (arrotondato ? ', arrotondato' : ''), fmtEUR(q.portafoglio.mensile) + ' €', 'quadro-margin quadro-good'));
 
   const stato = {};
-  q.portafoglio.fisseUscite.forEach(f => { stato[f.id] = 'uscita: ' + fmtEUR(f.amount) + ' €'; });
+  q.portafoglio.fisseUscite.forEach(f => { stato[f.id] = 'pagata'; });
   const righeFisse = fisse.slice().sort((a, b) => (a.dayOfMonth || 0) - (b.dayOfMonth || 0)).map(r =>
     rigaSoldi(r.name + ' (giorno ' + r.dayOfMonth + (q.primaDellAvvio ? '' : ', ' + (stato[r.id] || 'da pagare')) + ')', fmtEUR(r.amount) + ' €'));
   const titoloFisse = q.primaDellAvvio ? 'Le fisse di ogni mese' : 'Le fisse di ' + monthLabel(new Date());
@@ -1084,7 +1085,7 @@ function renderComeFunziona() {
   box.innerHTML =
     riquadro('Il portafoglio del mese', righe(budget) + '<p class="money-hint">Questi numeri li aggiorna Claude: per cambiarli, scrivigli in chat.</p>') +
     riquadro(titoloFisse, righe(righeFisse) + '<p class="money-hint">Una fissa resta fra quelle da pagare finché Claude non registra la spesa effettiva; se in un mese salta, non conta.</p>') +
-    riquadro('La cassaforte', (righeMedie.length ? righe(righeMedie) : '') + testoCassaforte) +
+    riquadro('La cassaforte', testoCassaforte + (righeMedie.length ? righe(righeMedie) : '')) +
     riquadro('Tutte le scadenze', q.scadenze.length ? righe(q.scadenze.map(rigaScadenza)) : '<p class="money-hint">Nessuna scadenza.</p>') +
     riquadro('Il bonifico di inizio mese', '<p class="money-hint">Il primo del mese manda a Claude il saldo di Fineco e l’importo dei contanti, esclusa la busta dei tuoi sfizi personali; per il patrimonio aggiungi il valore delle azioni e quanto c’è nella busta. Claude ti indica un solo bonifico: da Tinaba a Fineco se il portafoglio è sotto i ' +
       fmtEUR(q.portafoglio.mensile) + ' €, da Fineco a Tinaba se è sopra (per esempio perché è arrivata un’entrata). Lo stesso bonifico porta su Fineco i soldi delle scadenze del mese.</p>') +
@@ -1116,10 +1117,10 @@ function renderDiagnosi() {
     x.sforo > 0 ? 'riga-negativa' : ''
   ));
   const metodi = d.perMetodo.map(x => rigaSoldi(x.metodo.charAt(0).toUpperCase() + x.metodo.slice(1), fmtEUR(x.importo) + ' €'));
-  const entrate = d.entrateArrivate.map(v => rigaSoldi(v.name + ' (arrivata)', fmtEUR(v.lordo) + ' €'))
-    .concat(d.entrateAttese.map(v => rigaSoldi(v.name + ' (attesa)', fmtEUR(v.lordo) + ' €')));
+  const entrate = d.entrateArrivate.map(v => rigaSoldi(v.name + ', arrivata', fmtEUR(v.lordo) + ' €'))
+    .concat(d.entrateAttese.map(v => rigaSoldi(v.name + ', non ancora arrivata', fmtEUR(v.lordo) + ' €')));
   c.innerHTML = avviso + sezione('Totali', totali) + sezione('Per categoria', categorie) +
-    sezione('Per metodo di pagamento', metodi) + sezione('Entrate', entrate);
+    sezione('Per metodo di pagamento', metodi) + sezione('Pagamenti che ti arrivano', entrate);
 }
 
 function bindDiagnosi() {
