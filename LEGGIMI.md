@@ -4,7 +4,7 @@ Indirizzo: https://mattiadambrosio97-rgb.github.io/budget-familiare/
 
 ## Come si usa
 
-- **Il sistema**: portafoglio (Fineco più tutti i contanti) da 1.370 € al mese e cassaforte (Tinaba) per imposta, scadenze e risparmio. Il primo del mese un solo bonifico, calcolato da Claude, riporta il portafoglio a 1.370 €.
+- **Il sistema**: portafoglio (Fineco più i contanti, esclusa la busta degli sfizi personali di Mattia) da 1.370 € al mese e cassaforte (Tinaba) per imposta, scadenze e risparmio. Il primo del mese un solo bonifico, calcolato da Claude, riporta il portafoglio a 1.370 €.
 - **Le spese si registrano in chat con Claude**: una frase, la foto di uno scontrino, uno screenshot di Fineco o un estratto. Claude usa la skill `budget-familiare` (`references/registra-movimenti.md`).
 - **L’app mostra i numeri**: quanto puoi spendere oggi in spese libere, le barre di spesa e benzina, il mese, la cassaforte, le scadenze e le entrate attese. La pagina «Come funziona» mostra budget, fisse e scadenze in sola lettura.
 - **Se Claude non è raggiungibile**: in app «Da processare» lasci una nota o una foto; poi a Claude dici «processa tutto».

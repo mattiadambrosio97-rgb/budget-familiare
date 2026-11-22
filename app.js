@@ -937,7 +937,7 @@ function renderComeFunziona() {
     riquadro('Le fisse di ' + monthLabel(new Date()), righe(righeFisse) + '<p class="money-hint">Una fissa conta fra quelle «da uscire» finché Claude non registra la spesa vera; se in un mese salta, non conta.</p>') +
     riquadro('La cassaforte', (righeMedie.length ? righe(righeMedie) : '') + testoCassaforte) +
     riquadro('Tutte le scadenze', q.scadenze.length ? righe(q.scadenze.map(rigaScadenza)) : '<p class="money-hint">Nessuna scadenza.</p>') +
-    riquadro('Il bonifico di inizio mese', '<p class="money-hint">Il primo del mese mandi a Claude il saldo di Fineco e tutti i contanti. Claude risponde con un solo bonifico: da Tinaba a Fineco se il portafoglio è sotto i ' +
+    riquadro('Il bonifico di inizio mese', '<p class="money-hint">Il primo del mese mandi a Claude il saldo di Fineco e i contanti, esclusa la busta dei tuoi sfizi personali. Claude risponde con un solo bonifico: da Tinaba a Fineco se il portafoglio è sotto i ' +
       fmtEUR(q.portafoglio.mensile) + ' €, da Fineco a Tinaba se è sopra (per esempio perché è arrivata un’entrata). Lo stesso bonifico porta su Fineco i soldi delle scadenze del mese.</p>') +
     '<p class="money-hint">Le entrate attese (Manlio, ADT, Michelle) non entrano nei conti finché i soldi non arrivano.</p>';
 }
