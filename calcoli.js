@@ -99,6 +99,7 @@
       const conferma = vere.filter(m => m.recurringId === r.id);
       const voce = { id: r.id, name: r.name, category: r.category, day: giorno, previsto: num(r.amount) };
       if (conferma.length) uscite.push(Object.assign(voce, { amount: somma(conferma) }));
+      else if ((r.saltaMesi || []).includes(mese)) continue;
       else daUscire.push(Object.assign(voce, { amount: num(r.amount) }));
     }
     const ordina = (a, b) => a.day.localeCompare(b.day);

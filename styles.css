@@ -1002,3 +1002,10 @@ select { appearance: none; -webkit-appearance: none; background-image: url("data
   .recurring-item .recurring-actions { grid-column: auto; justify-self: end; }
   .recurring-item .recurring-actions .btn-small { padding: 6px 10px; min-height: 36px; }
 }
+
+/* Movimenti: la riga si tocca per correggere la spesa */
+.movement-item[role="button"] { cursor: pointer; }
+.movement-item[role="button"]:hover { background: var(--bg-3); }
+.movement-item[role="button"]:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+/* Fisse: saltata nel mese corrente */
+.badge-saltata { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: var(--giallo-soft); color: var(--giallo-testo); }

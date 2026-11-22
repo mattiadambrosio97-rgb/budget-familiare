@@ -72,6 +72,17 @@ test('prevista confermata: conta una volta sola, con l’importo vero', () => {
   assert.equal(q.portafoglio.fisseUscite[0].amount, 65);
 });
 
+test('fissa saltata: non è prevista in quel mese, torna il mese dopo; se arriva comunque conta', () => {
+  const rec = [{ ...recurring[0] }, { ...recurring[1], saltaMesi: ['2026-12'] }];
+  const dic = quadro(base({ recurring: rec }), giorno(2026, 12, 10));
+  assert.equal(dic.portafoglio.fisseDaUscire, 6.99);
+  const gen = quadro(base({ recurring: rec }), giorno(2027, 1, 10));
+  assert.equal(gen.portafoglio.fisseDaUscire, 76.99);
+  const pagata = quadro(base({ recurring: rec, movements: [spesa('2026-12-02', 70, 'casa-pulizia', { recurringId: 'r-signora' })] }), giorno(2026, 12, 10));
+  assert.equal(pagata.portafoglio.speso, 70);
+  assert.equal(pagata.portafoglio.fisseDaUscire, 6.99);
+});
+
 test('prevista decaduta: il mese dopo non conta più', () => {
   const dic = quadro(base({}), giorno(2026, 12, 31));
   assert.equal(dic.portafoglio.fisseDaUscire, 76.99);

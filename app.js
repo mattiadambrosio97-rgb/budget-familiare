@@ -579,18 +579,38 @@ function filterMovementsByMonth(month) {
 // ============================================================
 // AGGIUNGI
 // ============================================================
-function openAddModal() {
+let editingMovementId = null;
+function localISO(d) {
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+// Senza argomento apre il popup vuoto; con un movimento lo apre per correggerlo.
+function openAddModal(mov) {
+  const modifica = !!(mov && mov.id);
+  editingMovementId = modifica ? mov.id : null;
+  document.getElementById('add-title').textContent = modifica ? 'Correggi spesa' : 'Aggiungi spesa';
+  document.getElementById('add-submit').textContent = modifica ? 'Salva modifiche' : 'Salva spesa';
+  document.getElementById('open-split-btn').classList.toggle('hidden', modifica);
+  document.getElementById('add-date').value = modifica ? localISO(new Date(mov.date)) : todayISO();
+  if (modifica) {
+    document.getElementById('add-amount').value = mov.amount;
+    document.getElementById('add-category').value = mov.category || '';
+    document.getElementById('add-note').value = mov.note || '';
+    document.getElementById('add-method').value = ['contanti', 'carta', 'bonifico'].includes(mov.method) ? mov.method : '';
+  }
   document.getElementById('add-modal').classList.remove('hidden');
-  document.getElementById('add-date').value = todayISO();
   setTimeout(() => document.getElementById('add-amount').focus(), 100);
 }
 function closeAddModal() {
   document.getElementById('add-modal').classList.add('hidden');
   document.getElementById('add-form').reset();
+  editingMovementId = null;
+  document.getElementById('add-title').textContent = 'Aggiungi spesa';
+  document.getElementById('add-submit').textContent = 'Salva spesa';
+  document.getElementById('open-split-btn').classList.remove('hidden');
 }
 
 function bindAdd() {
-  document.getElementById('top-add-btn').addEventListener('click', openAddModal);
+  document.getElementById('top-add-btn').addEventListener('click', function () { openAddModal(); });
   document.getElementById('cancel-add').addEventListener('click', closeAddModal);
 
   document.getElementById('add-form').addEventListener('submit', function (e) {
@@ -599,18 +619,34 @@ function bindAdd() {
     const amount = parseFloat(document.getElementById('add-amount').value);
     const category = document.getElementById('add-category').value;
     const note = document.getElementById('add-note').value.trim();
+    const method = document.getElementById('add-method').value;
     if (!dateStr || !category) { showToast('Inserisci la data e scegli una categoria.', true); return; }
     if (!(amount > 0)) { showToast('Inserisci un importo maggiore di zero.', true); return; }
-    const movs = loadMovements();
-    movs.push({
-      id: uuid(),
-      date: dateFromISO(dateStr).toISOString(),
-      amount: amount,
-      category: category,
-      note: note,
-      isRecurring: false,
-      _modTs: Date.now()
-    });
+    let movs = loadMovements();
+    const correzione = !!editingMovementId;
+    if (correzione) {
+      // Correzione: cambia solo i campi del popup e tiene gli altri (fissa, rata, scadenza, origine).
+      const id = editingMovementId;
+      movs = movs.map(m => {
+        if (m.id !== id) return m;
+        const nuovo = { ...m, amount: amount, category: category, note: note, _modTs: Date.now() };
+        if (localISO(new Date(m.date)) !== dateStr) nuovo.date = dateFromISO(dateStr).toISOString();
+        if (method) nuovo.method = method; else delete nuovo.method;
+        return nuovo;
+      });
+    } else {
+      const nuova = {
+        id: uuid(),
+        date: dateFromISO(dateStr).toISOString(),
+        amount: amount,
+        category: category,
+        note: note,
+        isRecurring: false,
+        _modTs: Date.now()
+      };
+      if (method) nuova.method = method;
+      movs.push(nuova);
+    }
     const ok = saveMovements(movs);
     if (!ok) {
       showToast('Spesa non salvata. Riprova.', true);
@@ -620,7 +656,7 @@ function bindAdd() {
     cachedMovements = filterMovementsByMonth(currentMonth);
     renderMonth();
     renderMovements();
-    showToast('Spesa salvata');
+    showToast(correzione ? 'Spesa corretta' : 'Spesa salvata');
   });
 }
 
@@ -696,6 +732,8 @@ function bindSplit() {
         splitGroupId: splitGroupId,
         _modTs: nowTs
       });
+      const metodoSplit = document.getElementById('add-method').value;
+      if (metodoSplit) movs[movs.length - 1].method = metodoSplit;
     }
     const ok = saveMovements(movs);
     if (!ok) {
@@ -1150,7 +1188,7 @@ function renderMovements() {
     const cat = getCategory(m.category);
     const d = new Date(m.date);
     const dateStr = d.toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit' });
-    return '<div class="movement-item">' +
+    return '<div class="movement-item" data-id="' + m.id + '" role="button" tabindex="0" aria-label="Correggi la spesa da ' + fmtEUR(m.amount) + ' €">' +
       '<div class="movement-date">' + dateStr + '</div>' +
       '<div class="movement-body">' +
       '<div class="movement-top">' +
@@ -1163,7 +1201,7 @@ function renderMovements() {
       (m.note ? '<div class="movement-note">' + escapeHtml(m.note) + '</div>' : '') +
       '</div>' +
       '<div class="movement-amount">' + fmtEUR(m.amount) + ' €</div>' +
-      '<button class="movement-delete" data-id="' + m.id + '" aria-label="Elimina">&times;</button>' +
+      '<button class="movement-delete" data-id="' + m.id + '" aria-label="Elimina spesa">&times;</button>' +
       '</div>';
   }).join('');
 }
@@ -1173,9 +1211,17 @@ function bindMovements() {
   document.getElementById('show-recurring-toggle').addEventListener('change', renderMovements);
   var sortElBind = document.getElementById('movements-sort');
   if (sortElBind) sortElBind.addEventListener('change', renderMovements);
+  document.getElementById('movements-list').addEventListener('keydown', function (e) {
+    if ((e.key === 'Enter' || e.key === ' ') && e.target.classList.contains('movement-item')) { e.preventDefault(); e.target.click(); }
+  });
   document.getElementById('movements-list').addEventListener('click', function (e) {
     const btn = e.target.closest('.movement-delete');
-    if (!btn) return;
+    if (!btn) {
+      const riga = e.target.closest('.movement-item');
+      const mov = riga && cachedMovements.find(m => m.id === riga.dataset.id);
+      if (mov) openAddModal(mov);
+      return;
+    }
     const id = btn.dataset.id;
     const mov = cachedMovements.find(m => m.id === id);
     if (!mov) return;
@@ -1222,7 +1268,19 @@ function bindRecurring() {
       const recs = loadRecurring();
       const rec = recs.find(r => r.id === id);
       if (!rec) return;
-      if (btn.dataset.action === 'toggle') {
+      if (btn.dataset.action === 'skip') {
+        const mese = todayISO().slice(0, 7);
+        const salta = (rec.saltaMesi || []).filter(x => x >= mese);
+        const giaSaltata = salta.includes(mese);
+        rec.saltaMesi = giaSaltata ? salta.filter(x => x !== mese) : salta.concat(mese);
+        rec._modTs = Date.now();
+        saveRecurring(recs);
+        cachedRecurring = recs;
+        renderRecurring();
+        renderMonth();
+        const nome = MESI_LUNGHI[+mese.slice(5) - 1];
+        showToast(giaSaltata ? 'Di nuovo prevista a ' + nome : 'Saltata a ' + nome + ', torna il mese prossimo');
+      } else if (btn.dataset.action === 'toggle') {
         rec.active = !rec.active;
         rec._modTs = Date.now();
         saveRecurring(recs);
@@ -1305,19 +1363,24 @@ function renderRecurring() {
   }
   // Una colonna: prima le attive, dalla più cara alla più economica.
   const sorted = cachedRecurring.slice().sort((a, b) => ((b.active !== false) - (a.active !== false)) || ((+b.amount || 0) - (+a.amount || 0)));
+  const meseOra = todayISO().slice(0, 7);
+  const nomeOra = MESI_LUNGHI[+meseOra.slice(5) - 1];
   list.innerHTML = sorted.map(rec => {
     const cat = getCategory(rec.category);
+    const saltata = (rec.saltaMesi || []).includes(meseOra);
     return '<div class="recurring-item ' + (rec.active ? '' : 'inactive') + '" data-id="' + rec.id + '">' +
       '<div class="recurring-info">' +
       '<div class="recurring-name">' + escapeHtml(rec.name) + '</div>' +
       '<div class="recurring-meta">' +
       (cat && cat.name !== rec.name ? '<span class="cat-badge" style="background:' + cat.color + '">' + escapeHtml(cat.name) + '</span>' : '') +
       '<span>giorno ' + rec.dayOfMonth + '</span>' +
+      (saltata && rec.active ? '<span class="badge-saltata">saltata a ' + nomeOra + '</span>' : '') +
       '</div>' +
       '</div>' +
       '<div class="recurring-amount">' + fmtEUR(rec.amount) + ' €</div>' +
       '<div class="recurring-actions">' +
       '<button data-action="edit" data-id="' + rec.id + '" class="btn-small">Modifica</button>' +
+      (rec.active ? '<button data-action="skip" data-id="' + rec.id + '" class="btn-small">' + (saltata ? 'Ripristina' : 'Salta ' + nomeOra) + '</button>' : '') +
       '<button data-action="toggle" data-id="' + rec.id + '" class="btn-small">' + (rec.active ? 'Disattiva' : 'Attiva') + '</button>' +
       '</div>' +
       '</div>';

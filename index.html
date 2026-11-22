@@ -156,7 +156,7 @@
     <!-- MODAL: Aggiungi spesa -->
     <div id="add-modal" class="modal hidden">
       <div class="modal-content">
-        <h2>Aggiungi spesa</h2>
+        <h2 id="add-title">Aggiungi spesa</h2>
         <form id="add-form" class="add-form-modal">
           <label>
             <span>Data</span>
@@ -173,11 +173,20 @@
             </select>
           </label>
           <label>
+            <span>Pagata con</span>
+            <select id="add-method">
+              <option value="">Non indicato</option>
+              <option value="contanti">Contanti</option>
+              <option value="carta">Carta</option>
+              <option value="bonifico">Bonifico</option>
+            </select>
+          </label>
+          <label>
             <span>Nota (opzionale)</span>
             <input type="text" id="add-note" maxlength="80" placeholder="es. pizza da asporto" />
           </label>
           <div class="form-buttons">
-            <button type="submit" class="btn-primary">Salva spesa</button>
+            <button type="submit" id="add-submit" class="btn-primary">Salva spesa</button>
             <button type="button" id="open-split-btn" class="btn-secondary">Dividi scontrino</button>
             <button type="button" id="cancel-add" class="btn-secondary">Annulla</button>
           </div>
