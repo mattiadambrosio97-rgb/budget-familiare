@@ -899,6 +899,12 @@ function htmlPatrimonio() {
   const cr = BudgetCalcoli.crediti(dati, oggi);
   const crNetto = cr.filter(c => !c.aParte).reduce((a, c) => a + c.netto, 0);
   const aParte = cr.filter(c => c.aParte && c.lordo > 0);
+  // Liquidità: quello che puoi usare subito, senza fondo emergenze, azioni e crediti.
+  const qq = BudgetCalcoli.quadro(dati, new Date());
+  const fondo = qq.cassaforte ? qq.cassaforte.risparmio : 0;
+  const liquidita = (+f.fineco || 0) + (+f.contanti || 0) + Math.max((+f.tinaba || 0) - fondo, 0);
+  const testa = '<div class="pat-liquidita"><span>Liquidità</span><strong>' + escapeHtml(fmtEUR(liquidita) + ' €') + '</strong>' +
+    '<p>Fineco, contanti e Tinaba oltre il fondo emergenze, al ' + escapeHtml(fmtGiorno(f.data)) + '. Fuori: fondo, azioni e crediti.</p></div>';
   const r = [
     rigaSoldi('Fineco, conto', fmtEUR(+f.fineco || 0) + ' €'),
     rigaSoldi('Contanti', fmtEUR(+f.contanti || 0) + ' €'),
@@ -929,7 +935,7 @@ function htmlPatrimonio() {
   const nota = 'Saldi del ' + fmtGiorno(f.data) + ', crediti al ' + fmtGiorno(oggi) + ': un mese di lavoro conta dal primo del mese dopo, al netto di tasse e commercialista. ' +
     (mesi.length < 2 ? 'Il grafico si riempie un mese alla volta: ogni primo del mese Claude aggiunge un punto quando gli mandi i saldi. ' : '') +
     'La busta dei tuoi sfizi e i soldi di Michelle restano fuori.';
-  return riquadro('Patrimonio', righe(r) + confronto + graficoPatrimonio(mesi) + '<p class="money-hint">' + escapeHtml(nota) + '</p>');
+  return riquadro('Patrimonio', testa + righe(r) + confronto + graficoPatrimonio(mesi) + '<p class="money-hint">' + escapeHtml(nota) + '</p>');
 }
 
 function renderHome() {

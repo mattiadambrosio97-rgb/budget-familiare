@@ -958,3 +958,9 @@ select { appearance: none; -webkit-appearance: none; background-image: url("data
 .quadro-row.riga-aparte { border-top: 1px dashed var(--border-strong); margin-top: 10px; padding-top: 12px; }
 .quadro-row.riga-aparte span { color: var(--text-muted); }
 .quadro-row.riga-aparte strong { color: var(--arancio-testo); }
+
+/* Patrimonio: liquidità in testa, il numero da leggere subito */
+.pat-liquidita { background: var(--ok-soft); border-radius: var(--radius-sm); padding: 12px 14px; margin: 4px 0 12px; display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 12px; }
+.pat-liquidita span { font-weight: 700; color: var(--primary-dark); }
+.pat-liquidita strong { font-size: 24px; font-weight: 800; color: var(--text); letter-spacing: -0.4px; }
+.pat-liquidita p { flex-basis: 100%; font-size: 12px; color: var(--text-muted); line-height: 1.45; }
