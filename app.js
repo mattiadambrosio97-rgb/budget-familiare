@@ -914,7 +914,7 @@ function htmlPatrimonio() {
     rigaSoldi('= Soldi che hai', fmtEUR(tot) + ' €', 'quadro-margin')
   ];
   if (cr.length) {
-    for (const c of cr.filter(x => x.lordo > 0 && !x.aParte)) r.push(rigaSoldi('+ ' + c.nome + ' ti deve' + (c.lordo !== c.netto ? ' ' + fmtEUR(c.lordo) + ' € lordi' : ''), fmtEUR(c.netto) + ' € netti', 'riga-credito'));
+    r.push(rigaSoldi('+ Crediti netti (dettaglio in «Chi ti deve soldi»)', fmtEUR(crNetto) + ' €', 'riga-credito'));
     r.push(rigaSoldi('= Patrimonio con i crediti', fmtEUR(tot + crNetto) + ' €', 'quadro-margin quadro-totale'));
   }
   for (const c of aParte) r.push(rigaSoldi('A parte, data incerta: ' + c.nome, fmtEUR(c.netto) + ' €', 'riga-aparte'));
@@ -933,10 +933,10 @@ function htmlPatrimonio() {
     const d = mesi[mesi.length - 1].totale - mesi[mesi.length - 2].totale;
     confronto = '<p class="pat-confronto ' + (d >= 0 ? 'st-ok' : 'st-over') + '">' + (d >= 0 ? 'In crescita: ' : 'In calo: ') + conSegno(d) + ' di soldi che hai rispetto al mese prima</p>';
   }
-  const nota = 'Saldi del ' + fmtGiorno(f.data) + ', crediti al ' + fmtGiorno(oggi) + ': un mese di lavoro conta dal primo del mese dopo, al netto di tasse e commercialista. ' +
-    (mesi.length < 2 ? 'Il grafico si riempie un mese alla volta: ogni primo del mese Claude aggiunge un punto quando gli mandi i saldi. ' : '') +
+  const nota = 'Saldi del ' + fmtGiorno(f.data) + '. ' +
+    (mesi.length < 2 ? 'Il grafico mese per mese compare dal secondo mese: ogni primo del mese Claude aggiunge un punto quando gli mandi i saldi. ' : '') +
     'I soldi di Michelle restano fuori.';
-  return riquadro('Patrimonio', testa + righe(r) + confronto + graficoPatrimonio(mesi) + '<p class="money-hint">' + escapeHtml(nota) + '</p>');
+  return riquadro('Patrimonio', testa + righe(r) + confronto + (mesi.length >= 2 ? graficoPatrimonio(mesi) : '') + '<p class="money-hint">' + escapeHtml(nota) + '</p>');
 }
 
 // ============================================================
@@ -1021,34 +1021,30 @@ function renderHome() {
   }
   heroSub.classList.remove('hidden');
 
-  const parti = [];
+  // Due colonne con un titolo ciascuna: a sinistra il mese, a destra i soldi. Sul telefono una sotto l'altra.
+  const mese = [], soldi = [];
   if (!q.primaDellAvvio) {
-    parti.push(riquadro('Spesa e benzina', '<div class="categories-list">' + q.barre.map(b => barra(b.id, b.speso, b.budget)).join('') + '</div>'));
+    mese.push(riquadro('Spesa e benzina', '<div class="categories-list">' + q.barre.map(b => barra(b.id, b.speso, b.budget)).join('') + '</div>'));
     const p = q.portafoglio;
-    parti.push(riquadro('Il mese', righe([
+    mese.push(riquadro('Il mese', righe([
       rigaSoldi('Portafoglio del mese', fmtEUR(p.mensile) + ' €'),
       rigaSoldi('− Già speso', fmtEUR(p.speso) + ' €', 'neg'),
       rigaSoldi('− Fisse da pagare', fmtEUR(p.fisseDaUscire) + ' €', 'neg'),
       rigaSoldi('= Resta', euro(p.resto), 'quadro-margin ' + (p.resto >= 0 ? 'quadro-good' : 'quadro-bad'))
     ])));
   }
-  parti.push(riquadro('Cassaforte', htmlCassaforte(q.cassaforte)));
-  const pat = htmlPatrimonio();
-  if (pat) parti.push(pat);
-  const cre = htmlCrediti();
-  if (cre) parti.push(cre);
   if (q.scadenze.length) {
     const altre = q.scadenze.length > 5 ? '<p class="money-hint">Tutte le scadenze sono in «Come funziona».</p>' : '';
-    parti.push(riquadro('Prossime scadenze', righe(q.scadenze.slice(0, 5).map(rigaScadenza)) + altre));
+    mese.push(riquadro('Prossime scadenze', righe(q.scadenze.slice(0, 5).map(rigaScadenza)) + altre));
   }
-  const e = q.entrateAttese;
-  if (e.inRitardo.length || e.inArrivo.length) {
-    const riga = (v, ritardo) => rigaSoldi(v.name + ' (' + (v.expectedDate ? (ritardo ? 'in ritardo, ' : '') + fmtGiorno(v.expectedDate) : 'senza data') + ')',
-      fmtEUR(v.lordo) + ' €' + (v.isGross ? ' lordi' : ''), ritardo ? 'riga-negativa' : '');
-    parti.push(riquadro('Entrate attese, non ancora nei calcoli', righe(e.inRitardo.map(v => riga(v, true)).concat(e.inArrivo.map(v => riga(v, false))))));
-  }
-  if (q.ultimoMovimento) parti.push('<p class="money-hint home-ultimo">Ultimo movimento registrato: ' + escapeHtml(fmtGiorno(q.ultimoMovimento)) + '</p>');
-  home.innerHTML = parti.join('');
+  mese.push(riquadro('Cassaforte', htmlCassaforte(q.cassaforte)));
+  const pat = htmlPatrimonio();
+  if (pat) soldi.push(pat);
+  const cre = htmlCrediti();
+  if (cre) soldi.push(cre);
+  const colonna = (titolo, blocchi) => blocchi.length ? '<section class="home-col"><h2 class="home-sezione">' + titolo + '</h2>' + blocchi.join('') + '</section>' : '';
+  const piede = q.ultimoMovimento ? '<p class="money-hint home-ultimo">Ultimo movimento registrato: ' + escapeHtml(fmtGiorno(q.ultimoMovimento)) + '</p>' : '';
+  home.innerHTML = '<div class="home-grid">' + colonna('Questo mese', mese) + colonna('I tuoi soldi', soldi) + '</div>' + piede;
 }
 
 // ============================================================

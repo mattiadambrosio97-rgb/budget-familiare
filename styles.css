@@ -885,9 +885,10 @@ select { appearance: none; -webkit-appearance: none; background-image: url("data
 @media (min-width: 1000px) {
   .app-screen { max-width: 1120px; }
   .app-header, .bottom-nav { max-width: 1120px; }
-  #home-content, #come-content { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
-  #home-content > .quadro-box, #come-content > .quadro-box { margin-bottom: 0; }
-  #home-content > p, #come-content > p { grid-column: 1 / -1; }
+  #come-content { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
+  #come-content > .quadro-box { margin-bottom: 0; }
+  #come-content > p { grid-column: 1 / -1; }
+  .home-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: start; }
 }
 
 /* Fisse compatte: nome e importo sulla stessa riga, pulsanti piccoli sotto a destra */
@@ -969,3 +970,11 @@ select { appearance: none; -webkit-appearance: none; background-image: url("data
 .credito { padding: 4px 0 14px; }
 .credito + .credito { border-top: 1px solid var(--border); padding-top: 14px; }
 .credito-nome { font-size: 17px; font-weight: 800; margin-bottom: 2px; }
+
+/* Home: due colonne ordinate (Questo mese, I tuoi soldi), ognuna col suo titolo */
+.home-col { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.home-col + .home-col { margin-top: 26px; }
+@media (min-width: 1000px) { .home-col + .home-col { margin-top: 0; } }
+.home-col > .quadro-box { margin-bottom: 0; }
+.home-sezione { font-size: 13px; font-weight: 800; letter-spacing: 0.8px; text-transform: uppercase; color: var(--text-muted); margin: 6px 2px 0; }
+.home-ultimo { margin-top: 18px; text-align: center; }
