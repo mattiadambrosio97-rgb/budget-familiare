@@ -906,7 +906,7 @@ function htmlPatrimonio() {
     rigaSoldi('= Soldi che hai', fmtEUR(tot) + ' €', 'quadro-margin')
   ];
   if (cr.length) {
-    for (const c of cr) r.push(rigaSoldi('+ ' + c.nome + ' ti deve' + (c.lordo !== c.netto ? ' ' + fmtEUR(c.lordo) + ' € lordi' : ''), fmtEUR(c.netto) + ' € netti', 'riga-credito'));
+    for (const c of cr.filter(x => x.lordo > 0)) r.push(rigaSoldi('+ ' + c.nome + ' ti deve' + (c.lordo !== c.netto ? ' ' + fmtEUR(c.lordo) + ' € lordi' : ''), fmtEUR(c.netto) + ' € netti', 'riga-credito'));
     r.push(rigaSoldi('= Patrimonio con i crediti', fmtEUR(tot + crNetto) + ' €', 'quadro-margin quadro-totale'));
   }
   // Un punto per mese: l'ultima fotografia di ogni mese, al massimo gli ultimi 12.
