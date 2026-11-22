@@ -978,3 +978,14 @@ select { appearance: none; -webkit-appearance: none; background-image: url("data
 .home-col > .quadro-box { margin-bottom: 0; }
 .home-sezione { font-size: 13px; font-weight: 800; letter-spacing: 0.8px; text-transform: uppercase; color: var(--text-muted); margin: 6px 2px 0; }
 .home-ultimo { margin-top: 18px; text-align: center; }
+
+/* Chi ti deve soldi: nome e totale sulla stessa riga, dettaglio sotto, nota corta */
+.credito-testa { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.credito-tot { display: flex; flex-direction: column; align-items: flex-end; text-align: right; }
+.credito-tot strong { font-size: 18px; font-weight: 800; }
+.credito-tot span { font-size: 13px; color: var(--text-muted); }
+.credito .quadro-rows { margin-top: 6px; }
+.credito .quadro-row { font-size: 13px; padding: 3px 0; }
+.credito .quadro-row span, .credito .quadro-row strong { color: var(--text-muted); font-weight: 500; }
+.credito-nota { font-size: 13px; color: var(--text-muted); margin-top: 6px; line-height: 1.45; }
+.credito-totale .credito-nome { font-size: 15px; }

@@ -829,7 +829,7 @@ function htmlCassaforte(c) {
   if (!c) return '<p class="money-hint">Manda a Claude il saldo di Tinaba: l’app lo usa per calcolare la parte libera della cassaforte.</p>';
   // Prima il conto vero, poi il fondo che non si tocca, poi a cosa servono i soldi rimasti.
   const r = [rigaSoldi('Conto Tinaba', euro(c.saldoTinaba))];
-  if (c.entrateDaSistemare) r.push(rigaSoldi('+ Entrate arrivate su Fineco (passano col bonifico)', fmtEUR(c.entrateDaSistemare) + ' €'));
+  if (c.entrateDaSistemare) r.push(rigaSoldi('+ Entrate arrivate su Fineco', fmtEUR(c.entrateDaSistemare) + ' €'));
   if (c.speseDaSistemare) r.push(rigaSoldi('− Spese della cassaforte pagate da Fineco', fmtEUR(c.speseDaSistemare) + ' €', 'neg'));
   r.push(rigaSoldi('− Fondo emergenze (non si tocca)', fmtEUR(c.risparmio) + ' €', 'neg'));
   r.push(rigaSoldi('= Disponibile in cassaforte', euro(round2(c.saldo - c.risparmio)), 'quadro-margin'));
@@ -837,11 +837,10 @@ function htmlCassaforte(c) {
   r.push(rigaSoldi('− Scadenze dei prossimi 12 mesi', fmtEUR(c.scadenzeDestinate) + ' €', 'neg'));
   r.push(c.libero >= 0
     ? rigaSoldi('= Libero', euro(c.libero), 'quadro-margin quadro-good')
-    : rigaSoldi('= Da coprire con le prossime entrate', fmtEUR(-c.libero) + ' €', 'quadro-margin quadro-arancio'));
-  let nota = 'Saldo di Tinaba dichiarato il ' + fmtGiorno(c.dataSaldo) + '.';
+    : rigaSoldi('= Da coprire con le entrate', fmtEUR(-c.libero) + ' €', 'quadro-margin quadro-arancio'));
+  let nota = 'Saldo del ' + giornoBreve(c.dataSaldo) + '.';
   const r0 = (lsRead('settings', {}).risparmio || {});
-  if (r0.mensile) nota += ' Il fondo emergenze cresce di ' + fmtEUR(r0.mensile) + ' € al mese.';
-  if (c.libero < 0) nota += ' Imposta e scadenze superano il disponibile: le pagano le entrate dei prossimi mesi, che arrivano qui col bonifico di inizio mese.';
+  if (r0.mensile) nota += ' Il fondo cresce di ' + fmtEUR(r0.mensile) + ' € al mese.';
   return righe(r) + '<p class="money-hint">' + escapeHtml(nota) + '</p>';
 }
 function round2(n) { return Math.round(n * 100) / 100; }
@@ -905,7 +904,7 @@ function htmlPatrimonio() {
   const fondo = (+rs.base || 0) + (+rs.mensile || 0) * mesiFondo;
   const liquidita = (+f.fineco || 0) + (+f.contanti || 0) + Math.max((+f.tinaba || 0) - fondo, 0);
   const testa = '<div class="pat-liquidita"><span>Liquidità</span><strong>' + escapeHtml(fmtEUR(liquidita) + ' €') + '</strong>' +
-    '<p>Conto Fineco, contanti e Tinaba oltre il fondo emergenze, al ' + escapeHtml(fmtGiorno(f.data)) + '. Fuori: fondo, azioni, crediti e la busta dei tuoi sfizi.</p></div>';
+    '<p>Fineco, contanti e Tinaba oltre il fondo, al ' + escapeHtml(giornoBreve(f.data)) + '.</p></div>';
   const r = [
     rigaSoldi('Conto Fineco', fmtEUR(+f.fineco || 0) + ' €'),
     rigaSoldi('Contanti', fmtEUR(+f.contanti || 0) + ' €'),
@@ -915,7 +914,7 @@ function htmlPatrimonio() {
     rigaSoldi('= Soldi che hai', fmtEUR(tot) + ' €', 'quadro-margin')
   ];
   if (cr.length) {
-    r.push(rigaSoldi('+ Crediti netti (dettaglio in «Chi ti deve soldi»)', fmtEUR(crNetto) + ' €', 'riga-credito'));
+    r.push(rigaSoldi('+ Crediti, al netto', fmtEUR(crNetto) + ' €', 'riga-credito'));
     r.push(rigaSoldi('= Patrimonio con i crediti', fmtEUR(tot + crNetto) + ' €', 'quadro-margin quadro-totale'));
   }
   for (const c of aParte) r.push(rigaSoldi('A parte, data incerta: ' + c.nome, fmtEUR(c.netto) + ' €', 'riga-aparte'));
@@ -934,9 +933,7 @@ function htmlPatrimonio() {
     const d = mesi[mesi.length - 1].totale - mesi[mesi.length - 2].totale;
     confronto = '<p class="pat-confronto ' + (d >= 0 ? 'st-ok' : 'st-over') + '">' + (d >= 0 ? 'In crescita: ' : 'In calo: ') + conSegno(d) + ' di soldi che hai rispetto al mese prima</p>';
   }
-  const nota = 'Saldi del ' + fmtGiorno(f.data) + '. ' +
-    (mesi.length < 2 ? 'Il grafico mese per mese compare dal secondo mese: ogni primo del mese Claude aggiunge un punto quando gli mandi i saldi. ' : '') +
-    'I soldi di Michelle restano fuori.';
+  const nota = 'Saldi del ' + giornoBreve(f.data) + '.' + (mesi.length < 2 ? ' Il grafico mese per mese parte da dicembre.' : '');
   return riquadro('Patrimonio', testa + righe(r) + confronto + (mesi.length >= 2 ? graficoPatrimonio(mesi) : '') + '<p class="money-hint">' + escapeHtml(nota) + '</p>');
 }
 
@@ -946,34 +943,39 @@ function htmlPatrimonio() {
 const MESI_LUNGHI = ['gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno', 'luglio', 'agosto', 'settembre', 'ottobre', 'novembre', 'dicembre'];
 function nomeMese(k, conAnno) { const [y, m] = k.split('-').map(Number); return MESI_LUNGHI[m - 1] + (conAnno ? ' ' + y : ''); }
 
+function giornoBreve(k) { const [y, m, d] = k.split('-').map(Number); return d + ' ' + MESI_LUNGHI[m - 1]; }
+
 function htmlCrediti() {
   const dati = datiCalcolo();
   const cr = BudgetCalcoli.crediti(dati, todayISO());
   if (!cr.length) return '';
   const blocchi = cr.map(c => {
+    const lordi = c.lordo !== c.netto;
+    const testa = c.lordo > 0
+      ? '<strong>' + fmtEUR(c.lordo) + ' €' + (lordi ? ' lordi' : '') + '</strong>' + (lordi ? '<span>circa ' + fmtEUR(c.netto) + ' € netti</span>' : '')
+      : '<strong>Niente</strong>';
     const r = [];
     if (c.mesi) {
-      const periodo = c.mesi === 1 ? nomeMese(c.dal, true) : nomeMese(c.dal, c.dal.slice(0, 4) !== c.finoA.slice(0, 4)) + '–' + nomeMese(c.finoA, true);
-      r.push(rigaSoldi((c.perche || 'Maturato') + ', ' + periodo + ': ' + c.mesi + ' × ' + fmtEUR(c.lordoMensile) + ' €', fmtEUR(c.mesi * c.lordoMensile) + ' €'));
+      const periodo = c.mesi === 1 ? nomeMese(c.dal) : nomeMese(c.dal) + '–' + nomeMese(c.finoA);
+      r.push(rigaSoldi(cap(periodo) + (c.mesi > 1 ? ' (' + c.mesi + ' × ' + fmtEUR(c.lordoMensile) + ')' : ''), fmtEUR(c.mesi * c.lordoMensile) + ' €'));
     }
     if (c.extra) r.push(rigaSoldi('+ ' + (c.extraNota || 'Altro'), fmtEUR(c.extra) + ' €'));
-    for (const p of c.pagamenti) r.push(rigaSoldi(p.base ? '− Già pagato' + (p.nota ? ' (' + p.nota + ')' : '') : '− Pagato il ' + fmtGiorno(p.data), fmtEUR(p.lordo) + ' €', 'neg'));
-    const lordi = c.lordo !== c.netto;
-    if (c.lordo > 0) r.push(rigaSoldi('= Ti deve oggi', fmtEUR(c.lordo) + ' €' + (lordi ? ' lordi' : ''), 'quadro-margin quadro-totale'));
-    if (lordi && c.lordo > 0) r.push(rigaSoldi('Al netto di tasse e commercialista', 'circa ' + fmtEUR(c.netto) + ' €', 'riga-credito'));
+    for (const p of c.pagamenti) r.push(rigaSoldi('− Pagato' + (p.base ? (p.nota ? ' (' + p.nota + ')' : '') : ' il ' + fmtGiorno(p.data)), fmtEUR(p.lordo) + ' €', 'neg'));
     const note = [];
-    if (c.prossimo) note.push('Il ' + fmtGiorno(c.prossimo.data) + ' matura ' + nomeMese(c.prossimo.mese) + ': +' + fmtEUR(c.prossimo.lordo) + ' €.');
+    if (c.prossimo) note.push((c.lordo > 0 ? '+' : '') + tondo(c.prossimo.lordo) + ' € a ' + nomeMese(c.prossimo.data.slice(0, 7)) + ' per ' + nomeMese(c.prossimo.mese) + '.');
     else if (c.al) note.push('Ultima rata: ' + nomeMese(c.al, true) + '.');
     if (c.nota) note.push(c.nota);
-    if (!c.mesi && !c.extra) note.unshift('Oggi non ti deve niente.');
-    return '<div class="credito"><div class="credito-nome">' + escapeHtml(c.nome) + '</div>' + (r.length ? righe(r) : '') +
-      (note.length ? '<p class="money-hint">' + escapeHtml(note.join(' ')) + '</p>' : '') + '</div>';
+    return '<div class="credito"><div class="credito-testa"><span class="credito-nome">' + escapeHtml(c.nome) + '</span><span class="credito-tot">' + testa + '</span></div>' +
+      (c.lordo > 0 && r.length ? righe(r) : '') +
+      (note.length ? '<p class="credito-nota">' + escapeHtml(note.join(' ')) + '</p>' : '') + '</div>';
   });
   const totL = cr.reduce((a, c) => a + c.lordo, 0), totN = cr.reduce((a, c) => a + c.netto, 0);
-  const tot = '<div class="credito">' + righe([rigaSoldi('= In tutto ti devono', fmtEUR(totL) + ' € lordi', 'quadro-totale'),
-    rigaSoldi('Al netto di tasse e commercialista', 'circa ' + fmtEUR(totN) + ' €', 'riga-credito')]) + '</div>';
+  const tot = '<div class="credito credito-totale"><div class="credito-testa"><span class="credito-nome">In tutto</span><span class="credito-tot"><strong>' +
+    fmtEUR(totL) + ' € lordi</strong><span>circa ' + fmtEUR(totN) + ' € netti</span></span></div></div>';
   return riquadro('Chi ti deve soldi', blocchi.join('') + tot);
 }
+function tondo(n) { return fmtEUR(n).replace(/,00$/, ''); }
+function cap(t) { return t.charAt(0).toUpperCase() + t.slice(1); }
 
 function renderHome() {
   const home = document.getElementById('home-content');
@@ -992,7 +994,7 @@ function renderHome() {
     heroEl.classList.remove('hero-negative');
     heroCard.classList.remove('hero-card-negative', 'hero-giallo', 'hero-arancio');
     document.getElementById('hero-stato').classList.add('hidden');
-    heroSub.textContent = 'Il conteggio parte il ' + fmtGiorno(q.avvio) + ': da quel giorno qui vedi quanto puoi spendere oggi.';
+    heroSub.textContent = 'Dal ' + giornoBreve(q.avvio) + ' qui vedi quanto puoi spendere ogni giorno.';
     heroPace.classList.add('hidden');
   } else {
     const negativo = sl.restaOggi < 0;
@@ -1035,7 +1037,7 @@ function renderHome() {
     ])));
   }
   if (q.scadenze.length) {
-    const altre = q.scadenze.length > 5 ? '<p class="money-hint">Tutte le scadenze sono in «Come funziona».</p>' : '';
+    const altre = q.scadenze.length > 5 ? '<p class="money-hint">Le altre sono in «Come funziona».</p>' : '';
     mese.push(riquadro('Prossime scadenze', righe(q.scadenze.slice(0, 5).map(rigaScadenza)) + altre));
   }
   mese.push(riquadro('Cassaforte', htmlCassaforte(q.cassaforte)));
