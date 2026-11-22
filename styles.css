@@ -862,3 +862,27 @@ select { appearance: none; -webkit-appearance: none; background-image: url("data
 @media (prefers-color-scheme: dark) {
   .quadro-row.riga-positiva strong { color: var(--primary); }
 }
+
+/* Etichette delle caselle in minuscolo normale (la regola generale delle label le mette in maiuscolo) */
+.toggle-inline span { text-transform: none; letter-spacing: 0; font-size: 14px; font-weight: 500; }
+
+/* Fisse: il modulo per aggiungerne una sta in fondo, chiuso */
+.add-fissa summary { cursor: pointer; font-weight: 700; color: var(--primary-dark); min-height: 44px; display: flex; align-items: center; list-style: none; }
+.add-fissa summary::-webkit-details-marker { display: none; }
+.add-fissa[open] summary { margin-bottom: 12px; }
+
+/* Schermi larghi (tablet in orizzontale, computer): schede affiancate due a due */
+@media (min-width: 1000px) {
+  .app-screen { max-width: 1120px; }
+  .app-header, .bottom-nav { max-width: 1120px; }
+  #home-content, #come-content { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
+  #home-content > .quadro-box, #come-content > .quadro-box { margin-bottom: 0; }
+  #home-content > p, #come-content > p { grid-column: 1 / -1; }
+}
+
+/* Fisse compatte: nome e importo sulla stessa riga, pulsanti piccoli sotto a destra */
+.recurring-item { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 6px 12px; padding: 12px 14px; }
+.recurring-actions { grid-column: 1 / -1; justify-content: flex-end; }
+.recurring-actions .btn-small { min-height: 36px; padding: 6px 12px; font-size: 13px; }
+.card.add-fissa { padding: 6px 16px; }
+@media (min-width: 700px) { .recurring-list { display: grid; grid-template-columns: 1fr 1fr; } }

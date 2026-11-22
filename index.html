@@ -97,16 +97,20 @@
     <!-- RICORRENTI / ABBONAMENTI -->
     <section id="recurring-screen" class="screen app-screen">
       <p class="screen-intro">Spese fisse previste ogni mese. Restano fra le fisse da pagare finché Claude non registra la spesa effettiva; se in un mese saltano, non contano.</p>
-      <form id="recurring-form" class="recurring-form card">
+
+      <div id="recurring-list" class="recurring-list"></div>
+      <details class="card add-fissa">
+        <summary>+ Aggiungi una spesa fissa</summary>
+      <form id="recurring-form" class="recurring-form">
         <input type="text" id="rec-name" placeholder="Nome (es. Netflix)" required maxlength="50" />
         <input type="number" step="0.01" min="0" id="rec-amount" placeholder="&euro;/mese" required inputmode="decimal" />
         <select id="rec-category" required>
           <option value="">Categoria</option>
         </select>
         <input type="number" min="1" max="28" id="rec-day" placeholder="Giorno del mese (1-28)" required />
-        <button type="submit" class="btn-primary">Aggiungi spesa ricorrente</button>
+        <button type="submit" class="btn-primary">Salva spesa fissa</button>
       </form>
-      <div id="recurring-list" class="recurring-list"></div>
+      </details>
     </section>
 
     <!-- COME FUNZIONA (sola lettura: i numeri li scrive Claude) -->
@@ -167,7 +171,7 @@
           </label>
           <label>
             <span>Nota (opzionale)</span>
-            <input type="text" id="add-note" maxlength="80" placeholder="es. cinesi via Roma" />
+            <input type="text" id="add-note" maxlength="80" placeholder="es. pizza da asporto" />
           </label>
           <div class="form-buttons">
             <button type="submit" class="btn-primary">Salva spesa</button>
@@ -181,7 +185,7 @@
     <!-- MODAL: Modifica spesa ricorrente -->
     <div id="edit-recurring-modal" class="modal hidden">
       <div class="modal-content">
-        <h2>Modifica spesa ricorrente</h2>
+        <h2>Modifica spesa fissa</h2>
         <form id="edit-rec-form" class="add-form-modal">
           <label><span>Nome</span>
             <input type="text" id="edit-rec-name" required maxlength="50" />
@@ -222,8 +226,6 @@
       </div>
     </div>
 
-    <!-- FAB -->
-    <button id="fab-add" class="fab" aria-label="Aggiungi spesa">+</button>
 
     <nav class="bottom-nav">
       <button data-screen="month-screen" class="nav-btn active">

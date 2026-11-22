@@ -590,7 +590,6 @@ function closeAddModal() {
 }
 
 function bindAdd() {
-  document.getElementById('fab-add').addEventListener('click', openAddModal);
   document.getElementById('top-add-btn').addEventListener('click', openAddModal);
   document.getElementById('cancel-add').addEventListener('click', closeAddModal);
 
@@ -921,7 +920,8 @@ function renderComeFunziona() {
   const stato = {};
   q.portafoglio.fisseUscite.forEach(f => { stato[f.id] = 'uscita: ' + fmtEUR(f.amount) + ' €'; });
   const righeFisse = fisse.slice().sort((a, b) => (a.dayOfMonth || 0) - (b.dayOfMonth || 0)).map(r =>
-    rigaSoldi(r.name + ' (giorno ' + r.dayOfMonth + ', ' + (stato[r.id] || 'da pagare') + ')', fmtEUR(r.amount) + ' €'));
+    rigaSoldi(r.name + ' (giorno ' + r.dayOfMonth + (q.primaDellAvvio ? '' : ', ' + (stato[r.id] || 'da pagare')) + ')', fmtEUR(r.amount) + ' €'));
+  const titoloFisse = q.primaDellAvvio ? 'Le fisse di ogni mese' : 'Le fisse di ' + monthLabel(new Date());
 
   const medie = settings.medie || {};
   const righeMedie = Object.keys(medie).map(id => rigaSoldi(((getCategory(id) || {}).name || id) + ' (media)', fmtEUR(medie[id]) + ' € al mese'));
@@ -934,7 +934,7 @@ function renderComeFunziona() {
 
   box.innerHTML =
     riquadro('Il portafoglio del mese', righe(budget) + '<p class="money-hint">Questi numeri li aggiorna Claude: per cambiarli, scrivigli in chat.</p>') +
-    riquadro('Le fisse di ' + monthLabel(new Date()), righe(righeFisse) + '<p class="money-hint">Una fissa resta fra quelle da pagare finché Claude non registra la spesa effettiva; se in un mese salta, non conta.</p>') +
+    riquadro(titoloFisse, righe(righeFisse) + '<p class="money-hint">Una fissa resta fra quelle da pagare finché Claude non registra la spesa effettiva; se in un mese salta, non conta.</p>') +
     riquadro('La cassaforte', (righeMedie.length ? righe(righeMedie) : '') + testoCassaforte) +
     riquadro('Tutte le scadenze', q.scadenze.length ? righe(q.scadenze.map(rigaScadenza)) : '<p class="money-hint">Nessuna scadenza.</p>') +
     riquadro('Il bonifico di inizio mese', '<p class="money-hint">Il primo del mese manda a Claude il saldo di Fineco e l’importo dei contanti, esclusa la busta dei tuoi sfizi personali. Claude ti indica un solo bonifico: da Tinaba a Fineco se il portafoglio è sotto i ' +
@@ -1058,11 +1058,11 @@ function bindRecurring() {
     const item = { id: uuid(), name: name, amount: amount, category: category, dayOfMonth: day, active: true, lastGeneratedMonth: null, _modTs: Date.now() };
     recs.push(item);
     const ok = saveRecurring(recs);
-    if (!ok) { showToast('Spesa ricorrente non salvata.', true); return; }
+    if (!ok) { showToast('Spesa fissa non salvata.', true); return; }
     cachedRecurring = recs;
     e.target.reset();
     renderRecurring();
-    showToast('Spesa ricorrente aggiunta');
+    showToast('Spesa fissa aggiunta');
   });
 
   document.getElementById('recurring-list').addEventListener('click', function (e) {
@@ -1126,7 +1126,7 @@ function bindEditRecurring() {
     closeEditRecurring();
     renderRecurring();
     renderMonth();
-    showToast('Spesa ricorrente aggiornata');
+    showToast('Spesa fissa aggiornata');
   });
   document.getElementById('cancel-edit-rec').addEventListener('click', closeEditRecurring);
   document.getElementById('delete-edit-rec').addEventListener('click', function () {
@@ -1137,12 +1137,12 @@ function bindEditRecurring() {
       // Tombstone per propagare la cancellazione.
       const all = loadRecurring().map(r => r.id === editingRecurringId ? { ...r, _deleted: true, _modTs: Date.now() } : r);
       const ok = saveRecurring(all);
-      if (!ok) { showToast('Spesa ricorrente non eliminata.', true); return; }
+      if (!ok) { showToast('Spesa fissa non eliminata.', true); return; }
       cachedRecurring = activeOnly(all);
       closeEditRecurring();
       renderRecurring();
       renderMonth();
-      showToast('Spesa ricorrente eliminata');
+      showToast('Spesa fissa eliminata');
     }
   });
 }
@@ -1150,7 +1150,7 @@ function bindEditRecurring() {
 function renderRecurring() {
   const list = document.getElementById('recurring-list');
   if (cachedRecurring.length === 0) {
-    list.innerHTML = '<p class="empty-msg">Nessuna spesa ricorrente configurata.</p>';
+    list.innerHTML = '<p class="empty-msg">Nessuna spesa fissa.</p>';
     return;
   }
   const sorted = cachedRecurring.slice().sort((a, b) => (a.dayOfMonth || 0) - (b.dayOfMonth || 0));
@@ -1160,7 +1160,7 @@ function renderRecurring() {
       '<div class="recurring-info">' +
       '<div class="recurring-name">' + escapeHtml(rec.name) + '</div>' +
       '<div class="recurring-meta">' +
-      '<span class="cat-badge" style="background:' + (cat ? cat.color : '#888') + '">' + escapeHtml(cat ? cat.name : '?') + '</span>' +
+      (cat && cat.name !== rec.name ? '<span class="cat-badge" style="background:' + cat.color + '">' + escapeHtml(cat.name) + '</span>' : '') +
       '<span>giorno ' + rec.dayOfMonth + '</span>' +
       '</div>' +
       '</div>' +
