@@ -830,9 +830,14 @@ function htmlCassaforte(c) {
   const r = [rigaSoldi('Saldo', euro(c.saldo))];
   r.push(rigaSoldi('− Riserva per l’imposta', fmtEUR(Math.max(c.riservaImposta - c.riservaFinanziata, 0)) + ' €', 'neg'));
   r.push(rigaSoldi('− Scadenze dei prossimi 12 mesi', fmtEUR(c.scadenzeDestinate) + ' €', 'neg'));
-  r.push(rigaSoldi('− Risparmio messo da parte', fmtEUR(c.risparmio) + ' €', 'neg'));
-  r.push(rigaSoldi('= Libero', euro(c.libero), 'quadro-margin ' + (c.libero >= 0 ? 'quadro-good' : 'quadro-bad')));
+  r.push(rigaSoldi('− Fondo emergenze (non si tocca)', fmtEUR(c.risparmio) + ' €', 'neg'));
+  r.push(c.libero >= 0
+    ? rigaSoldi('= Libero', euro(c.libero), 'quadro-margin quadro-good')
+    : rigaSoldi('= Da coprire con le prossime entrate', fmtEUR(-c.libero) + ' €', 'quadro-margin quadro-arancio'));
   let nota = 'Saldo di Tinaba dichiarato il ' + fmtGiorno(c.dataSaldo) + '.';
+  if (c.libero < 0) nota += ' Le scadenze dei prossimi 12 mesi superano quello che c’è oltre il fondo: le pagano le entrate dei prossimi mesi, che passano qui col bonifico di inizio mese.';
+  const r0 = (lsRead('settings', {}).risparmio || {});
+  if (r0.mensile) nota += ' Il fondo emergenze cresce di ' + fmtEUR(r0.mensile) + ' € al mese.';
   if (c.entrateDaSistemare || c.speseDaSistemare) {
     const parti = [];
     if (c.entrateDaSistemare) parti.push('+' + fmtEUR(c.entrateDaSistemare) + ' € di entrate');
@@ -840,6 +845,73 @@ function htmlCassaforte(c) {
     nota += ' Comprende ' + parti.join(' e ') + ' che passano col prossimo bonifico.';
   }
   return righe(r) + '<p class="money-hint">' + escapeHtml(nota) + '</p>';
+}
+
+// ============================================================
+// PATRIMONIO: fotografie dei saldi (settings.patrimonio.storico), una per volta che Claude le registra
+// ============================================================
+const MESI_BREVI = ['gen', 'feb', 'mar', 'apr', 'mag', 'giu', 'lug', 'ago', 'set', 'ott', 'nov', 'dic'];
+function totalePatrimonio(f) { return (+f.fineco || 0) + (+f.contanti || 0) + (+f.tinaba || 0) + (+f.azioni || 0); }
+
+function graficoPatrimonio(mesi) {
+  // Linea, non barre: conta la variazione da un mese all'altro, quindi l'asse parte vicino al minimo.
+  const W = 600, H = 200, top = 34, base = 160, sx = 28, n = mesi.length;
+  const vals = mesi.map(m => m.totale);
+  const minV = Math.min(...vals), maxV = Math.max(...vals);
+  const pad = Math.max((maxV - minV) * 0.15, 100);
+  const lo = minV - pad, hi = maxV + pad;
+  const passo = n > 1 ? (W - 2 * sx) / (n - 1) : 0;
+  const X = i => n > 1 ? sx + passo * i : W / 2;
+  const Y = v => base - (v - lo) / (hi - lo) * (base - top);
+  const linea = n > 1 ? '<path class="pat-linea" d="' + mesi.map((m, i) => (i ? 'L' : 'M') + X(i).toFixed(1) + ' ' + Y(m.totale).toFixed(1)).join('') + '"/>' : '';
+  const larg = n > 1 ? passo : W;
+  const punti = mesi.map((m, i) => {
+    const ultimo = i === n - 1;
+    const diff = i ? m.totale - mesi[i - 1].totale : null;
+    const testo = m.etichetta + ': ' + fmtEUR(m.totale) + ' €' + (diff === null ? '' : ' (' + conSegno(diff) + ' sul mese prima)');
+    const anchor = n === 1 ? 'middle' : (ultimo ? 'end' : 'start');
+    const valore = ultimo
+      ? '<text class="pat-val" x="' + X(i) + '" y="' + (ultimo || n === 1 ? Y(m.totale) - 12 : Y(m.totale) + 24) + '" text-anchor="' + anchor + '">' + escapeHtml(fmtEUR(Math.round(m.totale)) + ' €') + '</text>' : '';
+    const mostraMese = n <= 6 || i % 2 === (n - 1) % 2;
+    return '<g class="pat-punto' + (ultimo ? ' pat-ultimo' : '') + '" tabindex="0" aria-label="' + escapeHtml(testo) + '">' +
+      '<title>' + escapeHtml(testo) + '</title>' +
+      '<rect x="' + (X(i) - larg / 2) + '" y="0" width="' + larg + '" height="' + H + '" fill="transparent"/>' +
+      '<circle cx="' + X(i) + '" cy="' + Y(m.totale) + '" r="' + (ultimo ? 6 : 4.5) + '"/>' + valore +
+      (mostraMese ? '<text class="pat-mese" x="' + X(i) + '" y="' + (base + 26) + '" text-anchor="middle">' + escapeHtml(m.breve) + '</text>' : '') +
+      '</g>';
+  }).join('');
+  return '<svg class="pat-grafico" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Patrimonio totale mese per mese">' +
+    '<line class="pat-asse" x1="0" x2="' + W + '" y1="' + (base + 8) + '" y2="' + (base + 8) + '"/>' + linea + punti + '</svg>';
+}
+
+function htmlPatrimonio() {
+  const st = ((lsRead('settings', {}).patrimonio || {}).storico || []).filter(f => f && f.data).slice().sort((a, b) => a.data.localeCompare(b.data));
+  if (!st.length) return '';
+  const f = st[st.length - 1];
+  const tot = totalePatrimonio(f);
+  const r = [
+    rigaSoldi('Fineco, conto', fmtEUR(+f.fineco || 0) + ' €'),
+    rigaSoldi('Contanti', fmtEUR(+f.contanti || 0) + ' €'),
+    rigaSoldi('Tinaba, cassaforte e fondo emergenze', fmtEUR(+f.tinaba || 0) + ' €'),
+    rigaSoldi('Azioni', fmtEUR(+f.azioni || 0) + ' €'),
+    rigaSoldi('= Patrimonio totale', fmtEUR(tot) + ' €', 'quadro-margin quadro-totale')
+  ];
+  // Un punto per mese: l'ultima fotografia di ogni mese, al massimo gli ultimi 12.
+  const perMese = {};
+  for (const x of st) perMese[x.data.slice(0, 7)] = x;
+  const mesi = Object.keys(perMese).sort().slice(-12).map(k => {
+    const [y, m] = k.split('-').map(Number);
+    return { k, totale: totalePatrimonio(perMese[k]), breve: MESI_BREVI[m - 1] + ' ' + String(y).slice(2), etichetta: MESI_BREVI[m - 1] + ' ' + y };
+  });
+  let confronto = '';
+  if (mesi.length >= 2) {
+    const d = mesi[mesi.length - 1].totale - mesi[mesi.length - 2].totale;
+    confronto = '<p class="pat-confronto ' + (d >= 0 ? 'st-ok' : 'st-over') + '">' + (d >= 0 ? 'In crescita: ' : 'In calo: ') + conSegno(d) + ' rispetto al mese prima</p>';
+  }
+  const nota = mesi.length < 2
+    ? 'Valori del ' + fmtGiorno(f.data) + '. Il grafico si riempie un mese alla volta: ogni primo del mese Claude aggiunge un punto quando gli mandi i saldi.'
+    : 'Valori del ' + fmtGiorno(f.data) + '. La busta dei tuoi sfizi e i soldi di Michelle restano fuori.';
+  return riquadro('Patrimonio', righe(r) + confronto + graficoPatrimonio(mesi) + '<p class="money-hint">' + escapeHtml(nota) + '</p>');
 }
 
 function renderHome() {
@@ -901,6 +973,8 @@ function renderHome() {
     ])));
   }
   parti.push(riquadro('Cassaforte', htmlCassaforte(q.cassaforte)));
+  const pat = htmlPatrimonio();
+  if (pat) parti.push(pat);
   if (q.scadenze.length) {
     const altre = q.scadenze.length > 5 ? '<p class="money-hint">Tutte le scadenze sono in «Come funziona».</p>' : '';
     parti.push(riquadro('Prossime scadenze', righe(q.scadenze.slice(0, 5).map(rigaScadenza)) + altre));

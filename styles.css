@@ -925,3 +925,21 @@ select { appearance: none; -webkit-appearance: none; background-image: url("data
 
 /* Scadenze vicine (entro 10 giorni) in arancione */
 .quadro-row.riga-vicina strong { color: var(--arancio-testo); }
+
+/* Cassaforte: parte da coprire con le entrate in arancione */
+.quadro-margin.quadro-arancio strong { color: var(--arancio-testo); font-size: 17px; }
+
+/* Patrimonio: totale in evidenza e grafico a barre mese per mese */
+.quadro-margin.quadro-totale strong { font-size: 19px; }
+.pat-confronto { font-size: 13px; font-weight: 700; margin-top: 8px; }
+.pat-confronto.st-ok { color: var(--primary-dark); }
+.pat-confronto.st-over { color: var(--danger); }
+.pat-grafico { display: block; width: 100%; height: auto; margin-top: 12px; }
+.pat-grafico .pat-asse { stroke: var(--border-strong); stroke-width: 1; }
+.pat-grafico .pat-linea { fill: none; stroke: #7c5a3a; stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; }
+.pat-grafico circle { fill: #ffffff; stroke: #7c5a3a; stroke-width: 2.5; }
+.pat-grafico .pat-ultimo circle { fill: #7c5a3a; }
+.pat-grafico .pat-punto:hover circle, .pat-grafico .pat-punto:focus circle { fill: #5e4329; stroke: #5e4329; }
+.pat-grafico .pat-punto:focus { outline: none; }
+.pat-grafico .pat-mese { font-size: 13px; fill: var(--text-muted); }
+.pat-grafico .pat-val { font-size: 15px; font-weight: 700; fill: var(--text); }
