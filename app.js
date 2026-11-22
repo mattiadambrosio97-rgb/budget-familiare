@@ -939,6 +939,41 @@ function htmlPatrimonio() {
   return riquadro('Patrimonio', testa + righe(r) + confronto + graficoPatrimonio(mesi) + '<p class="money-hint">' + escapeHtml(nota) + '</p>');
 }
 
+// ============================================================
+// CHI TI DEVE SOLDI: ogni credito con il suo conto (mesi maturati, extra, pagato, prossimo)
+// ============================================================
+const MESI_LUNGHI = ['gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno', 'luglio', 'agosto', 'settembre', 'ottobre', 'novembre', 'dicembre'];
+function nomeMese(k, conAnno) { const [y, m] = k.split('-').map(Number); return MESI_LUNGHI[m - 1] + (conAnno ? ' ' + y : ''); }
+
+function htmlCrediti() {
+  const dati = datiCalcolo();
+  const cr = BudgetCalcoli.crediti(dati, todayISO());
+  if (!cr.length) return '';
+  const blocchi = cr.map(c => {
+    const r = [];
+    if (c.mesi) {
+      const periodo = c.mesi === 1 ? nomeMese(c.dal, true) : nomeMese(c.dal, c.dal.slice(0, 4) !== c.finoA.slice(0, 4)) + '–' + nomeMese(c.finoA, true);
+      r.push(rigaSoldi((c.perche || 'Maturato') + ', ' + periodo + ': ' + c.mesi + ' × ' + fmtEUR(c.lordoMensile) + ' €', fmtEUR(c.mesi * c.lordoMensile) + ' €'));
+    }
+    if (c.extra) r.push(rigaSoldi('+ ' + (c.extraNota || 'Altro'), fmtEUR(c.extra) + ' €'));
+    for (const p of c.pagamenti) r.push(rigaSoldi(p.base ? '− Già pagato' + (p.nota ? ' (' + p.nota + ')' : '') : '− Pagato il ' + fmtGiorno(p.data), fmtEUR(p.lordo) + ' €', 'neg'));
+    const lordi = c.lordo !== c.netto;
+    if (c.lordo > 0) r.push(rigaSoldi('= Ti deve oggi', fmtEUR(c.lordo) + ' €' + (lordi ? ' lordi' : ''), 'quadro-margin quadro-totale'));
+    if (lordi && c.lordo > 0) r.push(rigaSoldi('Al netto di tasse e commercialista', 'circa ' + fmtEUR(c.netto) + ' €', 'riga-credito'));
+    const note = [];
+    if (c.prossimo) note.push('Il ' + fmtGiorno(c.prossimo.data) + ' matura ' + nomeMese(c.prossimo.mese) + ': +' + fmtEUR(c.prossimo.lordo) + ' €.');
+    else if (c.al) note.push('Ultima rata: ' + nomeMese(c.al, true) + '.');
+    if (c.nota) note.push(c.nota);
+    if (!c.mesi && !c.extra) note.unshift('Oggi non ti deve niente.');
+    return '<div class="credito"><div class="credito-nome">' + escapeHtml(c.nome) + '</div>' + (r.length ? righe(r) : '') +
+      (note.length ? '<p class="money-hint">' + escapeHtml(note.join(' ')) + '</p>' : '') + '</div>';
+  });
+  const totL = cr.reduce((a, c) => a + c.lordo, 0), totN = cr.reduce((a, c) => a + c.netto, 0);
+  const tot = '<div class="credito">' + righe([rigaSoldi('= In tutto ti devono', fmtEUR(totL) + ' € lordi', 'quadro-totale'),
+    rigaSoldi('Al netto di tasse e commercialista', 'circa ' + fmtEUR(totN) + ' €', 'riga-credito')]) + '</div>';
+  return riquadro('Chi ti deve soldi', blocchi.join('') + tot);
+}
+
 function renderHome() {
   const home = document.getElementById('home-content');
   if (!home) return;
@@ -1000,6 +1035,8 @@ function renderHome() {
   parti.push(riquadro('Cassaforte', htmlCassaforte(q.cassaforte)));
   const pat = htmlPatrimonio();
   if (pat) parti.push(pat);
+  const cre = htmlCrediti();
+  if (cre) parti.push(cre);
   if (q.scadenze.length) {
     const altre = q.scadenze.length > 5 ? '<p class="money-hint">Tutte le scadenze sono in «Come funziona».</p>' : '';
     parti.push(riquadro('Prossime scadenze', righe(q.scadenze.slice(0, 5).map(rigaScadenza)) + altre));

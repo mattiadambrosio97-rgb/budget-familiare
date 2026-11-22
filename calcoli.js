@@ -398,16 +398,27 @@
       }
       const rapporto = num(c.lordoMensile) ? num(c.nettoMensile) / num(c.lordoMensile) : 1;
       let pagato = num(c.pagatoLordo);
+      const pagamenti = num(c.pagatoLordo) ? [{ data: itemDay(c.pagatoFino), lordo: num(c.pagatoLordo), nota: c.pagatoNota || '', base: true }] : [];
       const cerca = String(c.cerca || c.nome).toLowerCase();
       for (const v of alive(data.incomeItems)) {
         if (v.status !== 'arrivata' || !String(v.name || '').toLowerCase().includes(cerca)) continue;
         const g = itemDay(v.receivedDate);
         if (!g || g <= itemDay(c.pagatoFino) || g > giorno) continue;
         const importo = num(v.receivedAmount != null ? v.receivedAmount : v.gross);
-        pagato += v.isGross ? importo : importo / rapporto;
+        const l = v.isGross ? importo : importo / rapporto;
+        pagato += l;
+        pagamenti.push({ data: g, lordo: round(l), nota: v.name || '' });
       }
       const lordo = round(Math.max(num(c.lordoMensile) * mesi + num(c.extraLordo) - pagato, 0));
-      out.push({ id: c.id, nome: c.nome, lordo: lordo, netto: round(lordo * rapporto), aParte: !!c.aParte });
+      // Dettaglio per il riquadro dei crediti: mesi maturati, extra, pagato e prossima maturazione.
+      const finito = c.al && monthOf(giorno) > c.al;
+      const prossimo = finito ? null : { data: addMonths(monthOf(giorno) + '-01', 1), mese: monthOf(giorno), lordo: num(c.lordoMensile) };
+      out.push({
+        id: c.id, nome: c.nome, lordo: lordo, netto: round(lordo * rapporto), aParte: !!c.aParte,
+        perche: c.perche || '', mesi: mesi, dal: c.dal, finoA: mesi ? monthOf(addMonths(c.dal + '-01', mesi - 1)) : null,
+        lordoMensile: num(c.lordoMensile), extra: num(c.extraLordo), extraNota: c.extraNota || '',
+        pagamenti: pagamenti, nota: c.nota || '', al: c.al || null, prossimo: prossimo
+      });
     }
     return out;
   }
