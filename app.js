@@ -883,7 +883,7 @@ function renderHome() {
     parti.push(riquadro('Il mese', righe([
       rigaSoldi('Portafoglio del mese', fmtEUR(p.mensile) + ' €'),
       rigaSoldi('− Già speso', fmtEUR(p.speso) + ' €', 'neg'),
-      rigaSoldi('− Fisse ancora da uscire', fmtEUR(p.fisseDaUscire) + ' €', 'neg'),
+      rigaSoldi('− Fisse da pagare', fmtEUR(p.fisseDaUscire) + ' €', 'neg'),
       rigaSoldi('= Resta', euro(p.resto), 'quadro-margin ' + (p.resto >= 0 ? 'quadro-good' : 'quadro-bad'))
     ])));
   }
@@ -921,7 +921,7 @@ function renderComeFunziona() {
   const stato = {};
   q.portafoglio.fisseUscite.forEach(f => { stato[f.id] = 'uscita: ' + fmtEUR(f.amount) + ' €'; });
   const righeFisse = fisse.slice().sort((a, b) => (a.dayOfMonth || 0) - (b.dayOfMonth || 0)).map(r =>
-    rigaSoldi(r.name + ' (giorno ' + r.dayOfMonth + ', ' + (stato[r.id] || 'da uscire') + ')', fmtEUR(r.amount) + ' €'));
+    rigaSoldi(r.name + ' (giorno ' + r.dayOfMonth + ', ' + (stato[r.id] || 'da pagare') + ')', fmtEUR(r.amount) + ' €'));
 
   const medie = settings.medie || {};
   const righeMedie = Object.keys(medie).map(id => rigaSoldi(((getCategory(id) || {}).name || id) + ' (media)', fmtEUR(medie[id]) + ' € al mese'));
@@ -934,7 +934,7 @@ function renderComeFunziona() {
 
   box.innerHTML =
     riquadro('Il portafoglio del mese', righe(budget) + '<p class="money-hint">Questi numeri li aggiorna Claude: per cambiarli, scrivigli in chat.</p>') +
-    riquadro('Le fisse di ' + monthLabel(new Date()), righe(righeFisse) + '<p class="money-hint">Una fissa conta fra quelle «da uscire» finché Claude non registra la spesa vera; se in un mese salta, non conta.</p>') +
+    riquadro('Le fisse di ' + monthLabel(new Date()), righe(righeFisse) + '<p class="money-hint">Una fissa resta fra quelle da pagare finché Claude non registra la spesa effettiva; se in un mese salta, non conta.</p>') +
     riquadro('La cassaforte', (righeMedie.length ? righe(righeMedie) : '') + testoCassaforte) +
     riquadro('Tutte le scadenze', q.scadenze.length ? righe(q.scadenze.map(rigaScadenza)) : '<p class="money-hint">Nessuna scadenza.</p>') +
     riquadro('Il bonifico di inizio mese', '<p class="money-hint">Il primo del mese manda a Claude il saldo di Fineco e l’importo dei contanti, esclusa la busta dei tuoi sfizi personali. Claude ti indica un solo bonifico: da Tinaba a Fineco se il portafoglio è sotto i ' +

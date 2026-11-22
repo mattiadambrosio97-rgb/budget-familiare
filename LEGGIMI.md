@@ -25,7 +25,7 @@ Indirizzo: https://mattiadambrosio97-rgb.github.io/budget-familiare/
 ## Regole di calcolo
 
 - **Spese libere di oggi**: budget delle spese libere meno lo speso prima di oggi, diviso i giorni rimasti, oggi compreso; poi meno lo speso di oggi. La quota non scende sotto zero, il resto del mese sì.
-- **Il mese**: 1.370 € meno le spese del portafoglio (variabili e fisse) e le fisse ancora da uscire. Una fissa è prevista finché non arriva la spesa collegata (`recurringId` nello stesso mese); se non arriva, a fine mese non conta. Le previste si calcolano dalla lista `recurring`: non sono movimenti.
+- **Il mese**: 1.370 € meno le spese del portafoglio (variabili e fisse) e le fisse da pagare. Una fissa è prevista finché non arriva la spesa collegata (`recurringId` nello stesso mese); se non arriva, a fine mese non conta. Le previste si calcolano dalla lista `recurring`: non sono movimenti.
 - **Cassaforte**: saldo dichiarato di Tinaba più o meno i bonifici registrati, più le entrate e meno le spese della cassaforte arrivate dopo l’ultimo bonifico. Destinato: riserva per l’imposta (base 355 € più il 12% delle entrate lorde, meno l’imposta pagata), scadenze non pagate e non finanziate dei prossimi 12 mesi, risparmio (200 € al mese da dicembre 2026). Libero: saldo meno destinato.
 - **Bonifico di inizio mese**: 1.370 − (Fineco + contanti − scadenze finanziate e non pagate) + scadenze del mese nuovo (anche scadute) + imposta del mese. Positivo: da Tinaba a Fineco; negativo: da Fineco a Tinaba.
 - Le entrate attese non entrano in nessun numero. Prima di `settings.avvio` (1/12/2026) l’app mostra solo cassaforte, scadenze ed entrate.
