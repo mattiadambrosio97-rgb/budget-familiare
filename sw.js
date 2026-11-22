@@ -5,7 +5,7 @@
 // - Endpoint dati Firebase (database/auth/identitytoolkit): sempre rete diretta,
 //   mai in cache (sono dati vivi, non asset).
 // Path relativi: l'app vive in sottocartella su GitHub Pages (/budget-familiare/).
-const CACHE_NAME = 'budget-v19';
+const CACHE_NAME = 'budget-v20';
 const ASSETS = ['./', './index.html', './app.js', './calcoli.js', './coda.js', './styles.css', './manifest.json', './icon.svg', './icon-180.png', './icon-192.png', './icon-512.png'];
 // SDK Firebase serviti da www.gstatic.com: URL versionati e immutabili.
 const FB_SDK = [
@@ -21,7 +21,8 @@ self.addEventListener('install', e => {
   // gli SDK si aggiungono best-effort per non bloccare l'install se gstatic e' giu'.
   e.waitUntil(
     caches.open(CACHE_NAME).then(c =>
-      c.addAll(ASSETS).then(() => c.addAll(FB_SDK).catch(() => {}))
+      // cache: 'reload' salta la cache HTTP del browser: senza, «Aggiorna» puo' salvare file vecchi fino a 10 minuti.
+      c.addAll(ASSETS.map(u => new Request(u, { cache: 'reload' }))).then(() => c.addAll(FB_SDK).catch(() => {}))
     )
   );
 });
@@ -72,8 +73,11 @@ self.addEventListener('fetch', e => {
   }
 
   // App shell: network-first, aggiorna cache, fallback cache offline.
+  // no-cache: il browser chiede sempre al server se il file e' cambiato (risposta 304 leggera se uguale).
+  // Le navigazioni restano come sono: un redirect servito dal SW romperebbe l'apertura della pagina.
+  const req = url.origin === location.origin && e.request.mode !== 'navigate' ? new Request(e.request, { cache: 'no-cache' }) : e.request;
   e.respondWith(
-    fetch(e.request)
+    fetch(req)
       .then(response => {
         if (response && response.ok && response.type === 'basic') {
           const clone = response.clone();
