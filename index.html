@@ -7,7 +7,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="apple-mobile-web-app-title" content="Budget" />
-  <title>Budget Familiare</title>
+  <title>Budget familiare</title>
   <link rel="manifest" href="manifest.json" />
   <link rel="stylesheet" href="styles.css" />
   <link rel="icon" href="icon.svg" type="image/svg+xml" />
@@ -47,7 +47,7 @@
   <main id="app-container" class="hidden">
     <header class="app-header">
       <div class="header-title" id="header-title">Budget</div>
-      <div id="sync-indicator" class="sync-indicator sync-syncing" title="Stato sincronizzazione">
+      <div id="sync-indicator" class="sync-indicator sync-syncing" title="Stato della sincronizzazione">
         <span class="sync-dot"></span>
         <span id="sync-text" class="sync-text">...</span>
       </div>
@@ -88,7 +88,7 @@
         </select>
         <label class="toggle-inline">
           <input type="checkbox" id="show-recurring-toggle" />
-          <span>Mostra le vecchie fisse automatiche</span>
+          <span>Mostra le fisse automatiche dei mesi passati</span>
         </label>
       </div>
       <div id="movements-list" class="movements-list"></div>
@@ -103,8 +103,8 @@
         <select id="rec-category" required>
           <option value="">Categoria</option>
         </select>
-        <input type="number" min="1" max="28" id="rec-day" placeholder="Giorno mese (1-28)" required />
-        <button type="submit" class="btn-primary">Aggiungi ricorrente</button>
+        <input type="number" min="1" max="28" id="rec-day" placeholder="Giorno del mese (1-28)" required />
+        <button type="submit" class="btn-primary">Aggiungi spesa ricorrente</button>
       </form>
       <div id="recurring-list" class="recurring-list"></div>
     </section>
@@ -171,7 +171,7 @@
           </label>
           <div class="form-buttons">
             <button type="submit" class="btn-primary">Salva spesa</button>
-            <button type="button" id="open-split-btn" class="btn-secondary">Split scontrino</button>
+            <button type="button" id="open-split-btn" class="btn-secondary">Dividi scontrino</button>
             <button type="button" id="cancel-add" class="btn-secondary">Annulla</button>
           </div>
         </form>
@@ -209,15 +209,15 @@
     <!-- MODAL: Split scontrino -->
     <div id="split-modal" class="modal hidden">
       <div class="modal-content">
-        <h2>Split scontrino</h2>
-        <p class="modal-hint">Dividi uno scontrino in pi&ugrave; categorie. Data e nota presi dal form principale.</p>
+        <h2>Dividi scontrino</h2>
+        <p class="modal-hint">Dividi uno scontrino in pi&ugrave; categorie. La data e la nota sono quelle della schermata Aggiungi spesa.</p>
         <div id="split-header" class="split-header"></div>
         <div id="split-rows"></div>
         <button type="button" id="add-split-row" class="btn-secondary">+ Aggiungi riga</button>
-        <div class="split-total">Totale split: <span id="split-total-amount">0,00</span> &euro;</div>
+        <div class="split-total">Totale scontrino: <span id="split-total-amount">0,00</span> &euro;</div>
         <div class="form-buttons">
           <button type="button" id="cancel-split" class="btn-secondary">Annulla</button>
-          <button type="button" id="save-split" class="btn-primary">Salva split</button>
+          <button type="button" id="save-split" class="btn-primary">Salva suddivisione</button>
         </div>
       </div>
     </div>

@@ -600,7 +600,7 @@ function bindAdd() {
     const amount = parseFloat(document.getElementById('add-amount').value);
     const category = document.getElementById('add-category').value;
     const note = document.getElementById('add-note').value.trim();
-    if (!dateStr || !category) { showToast('Compila data e categoria.', true); return; }
+    if (!dateStr || !category) { showToast('Inserisci la data e scegli una categoria.', true); return; }
     if (!(amount > 0)) { showToast('Inserisci un importo maggiore di zero.', true); return; }
     const movs = loadMovements();
     movs.push({
@@ -614,7 +614,7 @@ function bindAdd() {
     });
     const ok = saveMovements(movs);
     if (!ok) {
-      showToast('Errore: spesa NON salvata. Riprova.', true);
+      showToast('Spesa non salvata. Riprova.', true);
       return;
     }
     closeAddModal();
@@ -700,7 +700,7 @@ function bindSplit() {
     }
     const ok = saveMovements(movs);
     if (!ok) {
-      showToast('Errore: split NON salvato. Riprova.', true);
+      showToast('Suddivisione non salvata. Riprova.', true);
       return;
     }
     splitModal.classList.add('hidden');
@@ -708,7 +708,7 @@ function bindSplit() {
     cachedMovements = filterMovementsByMonth(currentMonth);
     renderMonth();
     renderMovements();
-    showToast('Split salvato (' + data.length + ' righe)');
+    showToast('Suddivisione salvata (' + data.length + ' righe)');
   });
 }
 
@@ -824,7 +824,7 @@ function rigaScadenza(s) {
 }
 
 function htmlCassaforte(c) {
-  if (!c) return '<p class="money-hint">Manda a Claude il saldo di Tinaba: da lì l’app calcola la parte libera.</p>';
+  if (!c) return '<p class="money-hint">Manda a Claude il saldo di Tinaba: l’app lo usa per calcolare la parte libera della cassaforte.</p>';
   const r = [rigaSoldi('Saldo', euro(c.saldo))];
   r.push(rigaSoldi('− Riserva per l’imposta', fmtEUR(Math.max(c.riservaImposta - c.riservaFinanziata, 0)) + ' €', 'neg'));
   r.push(rigaSoldi('− Scadenze dei prossimi 12 mesi', fmtEUR(c.scadenzeDestinate) + ' €', 'neg'));
@@ -867,9 +867,9 @@ function renderHome() {
     const gg = sl.giorniRestanti === 1 ? '1 giorno' : sl.giorniRestanti + ' giorni';
     heroSub.textContent = sl.resto >= 0
       ? 'Restano ' + fmtEUR(sl.resto) + ' € di spese libere fino a fine mese (' + gg + ').'
-      : 'Spese libere del mese superate di ' + fmtEUR(-sl.resto) + ' €.';
+      : 'Hai superato le spese libere del mese di ' + fmtEUR(-sl.resto) + ' €.';
     const pace = [];
-    if (sl.spesoOggi > 0) pace.push('<span>Oggi speso ' + fmtEUR(sl.spesoOggi) + ' € su ' + fmtEUR(sl.quotaOggi) + ' €</span>');
+    if (sl.spesoOggi > 0) pace.push('<span>Oggi hai speso ' + fmtEUR(sl.spesoOggi) + ' € su ' + fmtEUR(sl.quotaOggi) + ' €</span>');
     if (sl.chiusuraIeri) pace.push('<span>Ieri hai chiuso</span><span class="pace-value">' + conSegno(sl.chiusuraIeri.saldo) + '</span>');
     heroPace.innerHTML = pace.join('<span class="pace-meta">·</span>');
     heroPace.classList.toggle('hidden', pace.length === 0);
@@ -896,7 +896,7 @@ function renderHome() {
   if (e.inRitardo.length || e.inArrivo.length) {
     const riga = (v, ritardo) => rigaSoldi(v.name + ' (' + (v.expectedDate ? (ritardo ? 'in ritardo, ' : '') + fmtGiorno(v.expectedDate) : 'senza data') + ')',
       fmtEUR(v.lordo) + ' €' + (v.isGross ? ' lordi' : ''), ritardo ? 'riga-negativa' : '');
-    parti.push(riquadro('Entrate attese, non contate', righe(e.inRitardo.map(v => riga(v, true)).concat(e.inArrivo.map(v => riga(v, false))))));
+    parti.push(riquadro('Entrate attese, non ancora nei calcoli', righe(e.inRitardo.map(v => riga(v, true)).concat(e.inArrivo.map(v => riga(v, false))))));
   }
   if (q.ultimoMovimento) parti.push('<p class="money-hint home-ultimo">Ultimo movimento registrato: ' + escapeHtml(fmtGiorno(q.ultimoMovimento)) + '</p>');
   home.innerHTML = parti.join('');
@@ -928,16 +928,16 @@ function renderComeFunziona() {
   const risparmio = settings.risparmio || {};
   const pct = settings.taxPctDefault != null ? settings.taxPctDefault : 12;
   const testoCassaforte = '<p class="money-hint">La cassaforte tiene da parte il ' + pct +
-    '% di ogni fattura lorda per l’imposta, i soldi delle scadenze dei prossimi 12 mesi' +
+    '% dell’importo lordo di ogni fattura per l’imposta, i soldi delle scadenze dei prossimi 12 mesi' +
     (risparmio.mensile ? ' e ' + fmtEUR(risparmio.mensile) + ' € al mese di risparmio' + (risparmio.dal ? ' da ' + monthLabel(dateFromISO(risparmio.dal + '-01')) : '') : '') +
     '. Salute, auto, veterinario e regali si pagano dalla cassaforte quando capitano: le medie servono solo per orientarsi.</p>';
 
   box.innerHTML =
-    riquadro('Il portafoglio del mese', righe(budget) + '<p class="money-hint">I numeri li tiene Claude: per cambiarli diglielo in chat.</p>') +
+    riquadro('Il portafoglio del mese', righe(budget) + '<p class="money-hint">Questi numeri li aggiorna Claude: per cambiarli, scrivigli in chat.</p>') +
     riquadro('Le fisse di ' + monthLabel(new Date()), righe(righeFisse) + '<p class="money-hint">Una fissa conta fra quelle «da uscire» finché Claude non registra la spesa vera; se in un mese salta, non conta.</p>') +
     riquadro('La cassaforte', (righeMedie.length ? righe(righeMedie) : '') + testoCassaforte) +
     riquadro('Tutte le scadenze', q.scadenze.length ? righe(q.scadenze.map(rigaScadenza)) : '<p class="money-hint">Nessuna scadenza.</p>') +
-    riquadro('Il bonifico di inizio mese', '<p class="money-hint">Il primo del mese mandi a Claude il saldo di Fineco e i contanti, esclusa la busta dei tuoi sfizi personali. Claude risponde con un solo bonifico: da Tinaba a Fineco se il portafoglio è sotto i ' +
+    riquadro('Il bonifico di inizio mese', '<p class="money-hint">Il primo del mese manda a Claude il saldo di Fineco e l’importo dei contanti, esclusa la busta dei tuoi sfizi personali. Claude ti indica un solo bonifico: da Tinaba a Fineco se il portafoglio è sotto i ' +
       fmtEUR(q.portafoglio.mensile) + ' €, da Fineco a Tinaba se è sopra (per esempio perché è arrivata un’entrata). Lo stesso bonifico porta su Fineco i soldi delle scadenze del mese.</p>') +
     '<p class="money-hint">Le entrate attese (Manlio, ADT, Michelle) non entrano nei conti finché i soldi non arrivano.</p>';
 }
@@ -970,7 +970,7 @@ function renderDiagnosi() {
   const entrate = d.entrateArrivate.map(v => rigaSoldi(v.name + ' (arrivata)', fmtEUR(v.lordo) + ' €'))
     .concat(d.entrateAttese.map(v => rigaSoldi(v.name + ' (attesa)', fmtEUR(v.lordo) + ' €')));
   c.innerHTML = avviso + sezione('Totali', totali) + sezione('Per categoria', categorie) +
-    sezione('Per modo di pagamento', metodi) + sezione('Entrate', entrate);
+    sezione('Per metodo di pagamento', metodi) + sezione('Entrate', entrate);
 }
 
 function bindDiagnosi() {
@@ -1029,12 +1029,12 @@ function bindMovements() {
     const id = btn.dataset.id;
     const mov = cachedMovements.find(m => m.id === id);
     if (!mov) return;
-    if (confirm('Eliminare il movimento da ' + fmtEUR(mov.amount) + ' €?')) {
+    if (confirm('Vuoi eliminare il movimento da ' + fmtEUR(mov.amount) + ' €?')) {
       // Tombstone invece di rimozione: cosi' la cancellazione si propaga ai
       // dispositivi che avevano ancora la voce in locale, e non viene "resuscitata".
       const all = loadMovements().map(m => m.id === id ? { ...m, _deleted: true, _modTs: Date.now() } : m);
       const ok = saveMovements(all);
-      if (!ok) { showToast('Errore: NON eliminato. Riprova.', true); return; }
+      if (!ok) { showToast('Movimento non eliminato. Riprova.', true); return; }
       cachedMovements = cachedMovements.filter(m => m.id !== id);
       renderMonth(); renderMovements();
       showToast('Eliminato');
@@ -1052,17 +1052,17 @@ function bindRecurring() {
     const amount = parseFloat(document.getElementById('rec-amount').value);
     const category = document.getElementById('rec-category').value;
     const day = parseInt(document.getElementById('rec-day').value);
-    if (!name || !category || !day) { showToast('Compila nome, categoria e giorno.', true); return; }
+    if (!name || !category || !day) { showToast('Inserisci il nome e il giorno e scegli una categoria.', true); return; }
     if (!(amount > 0)) { showToast('Inserisci un importo maggiore di zero.', true); return; }
     const recs = loadRecurring();
     const item = { id: uuid(), name: name, amount: amount, category: category, dayOfMonth: day, active: true, lastGeneratedMonth: null, _modTs: Date.now() };
     recs.push(item);
     const ok = saveRecurring(recs);
-    if (!ok) { showToast('Errore: ricorrente NON salvata.', true); return; }
+    if (!ok) { showToast('Spesa ricorrente non salvata.', true); return; }
     cachedRecurring = recs;
     e.target.reset();
     renderRecurring();
-    showToast('Ricorrente aggiunta');
+    showToast('Spesa ricorrente aggiunta');
   });
 
   document.getElementById('recurring-list').addEventListener('click', function (e) {
@@ -1121,28 +1121,28 @@ function bindEditRecurring() {
     rec.dayOfMonth = isNaN(newDay) ? rec.dayOfMonth : newDay;
     rec._modTs = Date.now();
     const ok = saveRecurring(recs);
-    if (!ok) { showToast('Errore: modifica NON salvata.', true); return; }
+    if (!ok) { showToast('Modifica non salvata.', true); return; }
     cachedRecurring = recs;
     closeEditRecurring();
     renderRecurring();
     renderMonth();
-    showToast('Ricorrente aggiornata');
+    showToast('Spesa ricorrente aggiornata');
   });
   document.getElementById('cancel-edit-rec').addEventListener('click', closeEditRecurring);
   document.getElementById('delete-edit-rec').addEventListener('click', function () {
     if (!editingRecurringId) return;
     const rec = cachedRecurring.find(r => r.id === editingRecurringId);
     if (!rec) return;
-    if (confirm('Eliminare "' + rec.name + '"? I movimenti gia generati restano nei movimenti.')) {
+    if (confirm('Vuoi eliminare "' + rec.name + '"? I movimenti già registrati restano nell’elenco.')) {
       // Tombstone per propagare la cancellazione.
       const all = loadRecurring().map(r => r.id === editingRecurringId ? { ...r, _deleted: true, _modTs: Date.now() } : r);
       const ok = saveRecurring(all);
-      if (!ok) { showToast('Errore: NON eliminato.', true); return; }
+      if (!ok) { showToast('Spesa ricorrente non eliminata.', true); return; }
       cachedRecurring = activeOnly(all);
       closeEditRecurring();
       renderRecurring();
       renderMonth();
-      showToast('Ricorrente eliminata');
+      showToast('Spesa ricorrente eliminata');
     }
   });
 }
@@ -1222,7 +1222,7 @@ function bindLogout() {
   const btn = document.getElementById('logout-btn');
   if (!btn) return;
   btn.addEventListener('click', function () {
-    if (!confirm('Uscire dall\'account? Dovrai rifare login con email e password.')) return;
+    if (!confirm('Vuoi uscire dall\'account? Per accedere di nuovo dovrai inserire email e password.')) return;
     try {
       // Flush dei push pendenti prima del logout: non lasciamo dati per strada.
       flushPushSync();

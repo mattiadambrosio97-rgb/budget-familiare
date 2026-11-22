@@ -110,8 +110,8 @@ const BudgetCoda = (function () {
     const banner = document.getElementById('coda-banner');
     if (banner) {
       banner.textContent = voci.length === 1
-        ? '1 voce da processare: non è inclusa nei numeri. Tocca per vederla.'
-        : voci.length + ' voci da processare: non sono incluse nei numeri. Tocca per vederle.';
+        ? '1 voce da processare: non è inclusa nei calcoli. Tocca per vederla.'
+        : voci.length + ' voci da processare: non sono incluse nei calcoli. Tocca per vederle.';
       banner.classList.toggle('hidden', voci.length === 0);
     }
     const lista = document.getElementById('coda-list');
@@ -120,7 +120,7 @@ const BudgetCoda = (function () {
       '<div class="coda-item"><div class="coda-testo">' +
       '<div>' + (escapeHtml(v.text) || '<em>Solo foto</em>') + '</div>' +
       '<div class="coda-meta">' + new Date(v.createdAt).toLocaleString('it-IT', { dateStyle: 'short', timeStyle: 'short' }) +
-      (v.hasPhoto ? ' · con foto' : '') + (v.locale ? ' · sul telefono, in attesa di rete' : '') + '</div></div>' +
+      (v.hasPhoto ? ' · con foto' : '') + (v.locale ? ' · sul telefono, in attesa di connessione' : '') + '</div></div>' +
       '<button type="button" class="btn-small btn-danger" data-coda-id="' + escapeHtml(v.id) + '" aria-label="Elimina">&times;</button></div>'
     ).join('') : '<p class="empty-msg">Niente da processare.</p>';
   }
@@ -133,18 +133,18 @@ const BudgetCoda = (function () {
   }
 
   async function elimina(id) {
-    if (!confirm('Eliminare questa voce?')) return;
+    if (!confirm('Vuoi eliminare questa voce?')) return;
     try {
       await togliLocale(id);
       if (remote.some(v => v.id === id)) {
         const token = await tokenParam();
-        if (!token) { showToast('Serve la rete per eliminarla.', true); return; }
+        if (!token) { showToast('Serve una connessione per eliminarla.', true); return; }
         await richiesta('', token, 'PATCH', { ['voci/' + id]: null, ['foto/' + id]: null });
         remote = remote.filter(v => v.id !== id);
       }
       await aggiornaVista();
     } catch (e) {
-      showToast('Non sono riuscito a eliminarla. Riprova.', true);
+      showToast('Voce non eliminata. Riprova.', true);
     }
   }
 
@@ -165,7 +165,7 @@ const BudgetCoda = (function () {
         fotoScelta = await comprimi(file);
         document.getElementById('coda-foto-nome').textContent = 'Foto pronta';
       } catch (err) {
-        showToast('Questa foto non si riesce a leggere.', true);
+        showToast('La foto non è leggibile.', true);
       }
     });
     document.getElementById('coda-form').addEventListener('submit', async function (e) {
@@ -175,13 +175,13 @@ const BudgetCoda = (function () {
       try {
         await salvaLocale({ id: 'c' + Date.now() + Math.random().toString(36).slice(2, 8), createdAt: Date.now(), text: text, photo: fotoScelta });
       } catch (err) {
-        showToast('Errore: voce NON salvata. Riprova.', true);
+        showToast('Voce non salvata. Riprova.', true);
         return;
       }
       document.getElementById('coda-form').reset();
       document.getElementById('coda-foto-nome').textContent = '';
       fotoScelta = null;
-      showToast('Messo in coda');
+      showToast('Voce aggiunta alla coda');
       await aggiornaVista();
       sincronizza();
     });
