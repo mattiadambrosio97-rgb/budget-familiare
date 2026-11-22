@@ -391,7 +391,11 @@
     for (const c of alive((data.settings || {}).crediti)) {
       const [y1, m1] = c.dal.split('-').map(Number);
       const [y2, m2] = monthOf(giorno).split('-').map(Number);
-      const mesi = Math.max(0, (y2 - y1) * 12 + (m2 - m1));
+      let mesi = Math.max(0, (y2 - y1) * 12 + (m2 - m1));
+      if (c.al) {
+        const [y3, m3] = c.al.split('-').map(Number);
+        mesi = Math.min(mesi, Math.max(0, (y3 - y1) * 12 + (m3 - m1) + 1));
+      }
       const rapporto = num(c.lordoMensile) ? num(c.nettoMensile) / num(c.lordoMensile) : 1;
       let pagato = num(c.pagatoLordo);
       const cerca = String(c.cerca || c.nome).toLowerCase();
@@ -403,7 +407,7 @@
         pagato += v.isGross ? importo : importo / rapporto;
       }
       const lordo = round(Math.max(num(c.lordoMensile) * mesi + num(c.extraLordo) - pagato, 0));
-      out.push({ id: c.id, nome: c.nome, lordo: lordo, netto: round(lordo * rapporto) });
+      out.push({ id: c.id, nome: c.nome, lordo: lordo, netto: round(lordo * rapporto), aParte: !!c.aParte });
     }
     return out;
   }

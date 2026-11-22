@@ -897,7 +897,8 @@ function htmlPatrimonio() {
   const tot = totalePatrimonio(f);
   const oggi = todayISO();
   const cr = BudgetCalcoli.crediti(dati, oggi);
-  const crNetto = cr.reduce((a, c) => a + c.netto, 0);
+  const crNetto = cr.filter(c => !c.aParte).reduce((a, c) => a + c.netto, 0);
+  const aParte = cr.filter(c => c.aParte && c.lordo > 0);
   const r = [
     rigaSoldi('Fineco, conto', fmtEUR(+f.fineco || 0) + ' €'),
     rigaSoldi('Contanti', fmtEUR(+f.contanti || 0) + ' €'),
@@ -906,9 +907,10 @@ function htmlPatrimonio() {
     rigaSoldi('= Soldi che hai', fmtEUR(tot) + ' €', 'quadro-margin')
   ];
   if (cr.length) {
-    for (const c of cr.filter(x => x.lordo > 0)) r.push(rigaSoldi('+ ' + c.nome + ' ti deve' + (c.lordo !== c.netto ? ' ' + fmtEUR(c.lordo) + ' € lordi' : ''), fmtEUR(c.netto) + ' € netti', 'riga-credito'));
+    for (const c of cr.filter(x => x.lordo > 0 && !x.aParte)) r.push(rigaSoldi('+ ' + c.nome + ' ti deve' + (c.lordo !== c.netto ? ' ' + fmtEUR(c.lordo) + ' € lordi' : ''), fmtEUR(c.netto) + ' € netti', 'riga-credito'));
     r.push(rigaSoldi('= Patrimonio con i crediti', fmtEUR(tot + crNetto) + ' €', 'quadro-margin quadro-totale'));
   }
+  for (const c of aParte) r.push(rigaSoldi('A parte, data incerta: ' + c.nome, fmtEUR(c.netto) + ' €', 'riga-aparte'));
   // Un punto per mese: l'ultima fotografia di ogni mese, al massimo gli ultimi 12.
   const perMese = {};
   for (const x of st) perMese[x.data.slice(0, 7)] = x;
@@ -916,7 +918,7 @@ function htmlPatrimonio() {
     const [y, m] = k.split('-').map(Number);
     const foto = perMese[k];
     const t = totalePatrimonio(foto);
-    const c = BudgetCalcoli.crediti(dati, foto.data).reduce((a, x) => a + x.netto, 0);
+    const c = BudgetCalcoli.crediti(dati, foto.data).filter(x => !x.aParte).reduce((a, x) => a + x.netto, 0);
     return { k, totale: t, conCrediti: t + c, breve: MESI_BREVI[m - 1] + ' ' + String(y).slice(2), etichetta: MESI_BREVI[m - 1] + ' ' + y };
   });
   let confronto = '';
@@ -926,7 +928,7 @@ function htmlPatrimonio() {
   }
   const nota = 'Saldi del ' + fmtGiorno(f.data) + ', crediti al ' + fmtGiorno(oggi) + ': un mese di lavoro conta dal primo del mese dopo, al netto di tasse e commercialista. ' +
     (mesi.length < 2 ? 'Il grafico si riempie un mese alla volta: ogni primo del mese Claude aggiunge un punto quando gli mandi i saldi. ' : '') +
-    'La busta dei tuoi sfizi, i soldi di Michelle e il TFR di ADT restano fuori.';
+    'La busta dei tuoi sfizi e i soldi di Michelle restano fuori; il TFR di ADT è a parte, fuori dal totale, finché non arriva.';
   return riquadro('Patrimonio', righe(r) + confronto + graficoPatrimonio(mesi) + '<p class="money-hint">' + escapeHtml(nota) + '</p>');
 }
 

@@ -953,3 +953,8 @@ select { appearance: none; -webkit-appearance: none; background-image: url("data
 .pat-legenda i { display: inline-block; width: 22px; height: 0; border-top: 2.5px solid #7c5a3a; }
 .pat-legenda i.pat-l2 { border-top: 2.5px dashed #b9a894; }
 .pat-grafico .pat-ultimo .pat-c2, .pat-grafico .pat-punto:hover .pat-c2 { fill: #ffffff; stroke: #b9a894; }
+
+/* Credito a parte, data incerta (TFR di ADT) */
+.quadro-row.riga-aparte { border-top: 1px dashed var(--border-strong); margin-top: 10px; padding-top: 12px; }
+.quadro-row.riga-aparte span { color: var(--text-muted); }
+.quadro-row.riga-aparte strong { color: var(--arancio-testo); }

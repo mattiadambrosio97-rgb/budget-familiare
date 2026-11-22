@@ -197,3 +197,14 @@ test('crediti: Manlio matura il primo del mese dopo e scala i pagamenti arrivati
   ] });
   assert.deepEqual(crediti(pagato, '2026-12-31').map(c => c.lordo), [4200, 0]);
 });
+
+test('crediti: rate a termine (TFR) si fermano al mese finale e restano a parte', () => {
+  const s = Object.assign({}, settings, { crediti: [
+    { id: 'adt', nome: 'ADT, TFR', cerca: 'adt', dal: '2026-09', al: '2026-12', lordoMensile: 780, nettoMensile: 780, pagatoLordo: 0, pagatoFino: '2026-11-22', aParte: true }
+  ] });
+  const d = base({ settings: s });
+  assert.equal(crediti(d, '2026-11-22')[0].lordo, 1560);
+  assert.equal(crediti(d, '2026-12-01')[0].lordo, 2340);
+  assert.equal(crediti(d, '2027-06-01')[0].lordo, 3120);
+  assert.equal(crediti(d, '2027-06-01')[0].aParte, true);
+});
