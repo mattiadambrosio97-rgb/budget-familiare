@@ -886,3 +886,9 @@ select { appearance: none; -webkit-appearance: none; background-image: url("data
 .recurring-actions .btn-small { min-height: 36px; padding: 6px 12px; font-size: 13px; }
 .card.add-fissa { padding: 6px 16px; }
 @media (min-width: 700px) { .recurring-list { display: grid; grid-template-columns: 1fr 1fr; } }
+
+/* Tablet e schermi larghi: i popup restano al centro con una larghezza leggibile */
+@media (min-width: 700px) {
+  .modal { align-items: center; justify-content: center; padding: 24px; }
+  .modal-content { width: 100%; max-width: 620px; border-radius: 20px; max-height: calc(100vh - 48px); overflow-y: auto; }
+}
