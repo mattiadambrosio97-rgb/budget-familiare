@@ -47,20 +47,20 @@ let realtimeRef = null;    // riferimento Firebase per sync live
 // 'cassaforte' (pagate col portafoglio, rimborsate da Tinaba col bonifico di inizio mese).
 // Uguale a CATEGORIE_APP in budget_dati.py: se cambia qui, cambia anche lì.
 const CATEGORIES = [
-  { id: 'spesa-casa', name: 'Spesa e casa', color: '#15803d', group: 'variabile' },
-  { id: 'spese-libere', name: 'Spese libere', color: '#dc2626', group: 'variabile' },
-  { id: 'benzina', name: 'Benzina', color: '#b45309', group: 'variabile' },
-  { id: 'abbonamenti', name: 'Abbonamenti', color: '#2563eb', group: 'fissa' },
-  { id: 'casa-gas', name: 'Bombola del gas', color: '#0f766e', group: 'fissa' },
-  { id: 'casa-pulizia', name: 'Signora delle pulizie', color: '#0e7490', group: 'fissa' },
-  { id: 'cura-personale', name: 'Cura personale', color: '#be185d', group: 'fissa' },
-  { id: 'lavoro', name: 'Lavoro', color: '#4338ca', group: 'fissa' },
-  { id: 'salute', name: 'Salute', color: '#b91c1c', group: 'cassaforte' },
-  { id: 'auto', name: 'Auto', color: '#92400e', group: 'cassaforte' },
-  { id: 'veterinario', name: 'Veterinario', color: '#9333ea', group: 'cassaforte' },
+  { id: 'spesa-casa', name: 'Spesa e casa', color: '#7c5a3a', group: 'variabile' },
+  { id: 'spese-libere', name: 'Spese libere', color: '#be185d', group: 'variabile' },
+  { id: 'benzina', name: 'Benzina', color: '#6d4c8a', group: 'variabile' },
+  { id: 'abbonamenti', name: 'Abbonamenti', color: '#155e75', group: 'fissa' },
+  { id: 'casa-gas', name: 'Bombola del gas', color: '#57534e', group: 'fissa' },
+  { id: 'casa-pulizia', name: 'Signora delle pulizie', color: '#78716c', group: 'fissa' },
+  { id: 'cura-personale', name: 'Cura personale', color: '#9d174d', group: 'fissa' },
+  { id: 'lavoro', name: 'Lavoro', color: '#5b4a8a', group: 'fissa' },
+  { id: 'salute', name: 'Salute', color: '#9f1239', group: 'cassaforte' },
+  { id: 'auto', name: 'Auto', color: '#713f12', group: 'cassaforte' },
+  { id: 'veterinario', name: 'Veterinario', color: '#6b21a8', group: 'cassaforte' },
   { id: 'regali-anno', name: 'Regali', color: '#a21caf', group: 'cassaforte' },
-  { id: 'viaggi', name: 'Viaggi', color: '#475569', group: 'cassaforte' },
-  { id: 'tasse', name: 'Tasse', color: '#334155', group: 'cassaforte' },
+  { id: 'viaggi', name: 'Viaggi', color: '#0e7490', group: 'cassaforte' },
+  { id: 'tasse', name: 'Tasse', color: '#44403c', group: 'cassaforte' },
   { id: 'rate', name: 'Rate', color: '#57534e', group: 'cassaforte' }
 ];
 const GROUP_LABELS = { variabile: 'Portafoglio', fissa: 'Fisse del portafoglio', cassaforte: 'Cassaforte' };
@@ -803,7 +803,7 @@ function riquadro(titolo, corpo) {
 function righe(list) { return '<div class="quadro-rows">' + list.join('') + '</div>'; }
 
 function barra(id, speso, budget) {
-  const c = getCategory(id) || { name: id, color: '#64748b' };
+  const c = getCategory(id) || { name: id, color: '#78716c' };
   const pct = budget > 0 ? Math.min(speso / budget * 100, 100) : 0;
   const stato = budget > 0 && speso >= budget ? 'cat-over' : (budget > 0 && speso >= budget * 0.8 ? 'cat-warn' : '');
   return '<div class="cat-row ' + stato + '">' +
@@ -812,14 +812,17 @@ function barra(id, speso, budget) {
     '<span class="cat-name">' + escapeHtml(c.name) + '</span>' +
     '<span class="cat-amount">' + fmtEUR(speso) + ' € / ' + fmtEUR(budget) + ' €</span>' +
     '</div>' +
-    '<div class="cat-bar"><div class="cat-bar-fill" style="width:' + pct + '%;background:' + c.color + '"></div></div>' +
+    '<div class="cat-bar"><div class="cat-bar-fill ' + (stato === 'cat-over' ? 'bar-over' : stato === 'cat-warn' ? 'bar-giallo' : 'bar-ok') + '" style="width:' + pct + '%"></div></div>' +
+    '<div class="cat-stato ' + (stato === 'cat-over' ? 'st-over">Superato' : stato === 'cat-warn' ? 'st-giallo">Quasi al limite' : 'st-ok">In linea') + '</div>' +
     '</div>';
 }
 
 function rigaScadenza(s) {
   const quando = s.date ? fmtGiorno(s.date) : 'da pagare';
   const nota = s.finanziata ? ' · già su Fineco' : (s.daRiserva ? ' · dalla riserva' : '');
-  return rigaSoldi(s.name + ' (' + quando + nota + ')', fmtEUR(s.amount) + ' €', s.scaduta || !s.date ? 'riga-negativa' : '');
+  const giorni = s.date ? Math.round((dateFromISO(s.date) - new Date(new Date().toDateString())) / 86400000) : null;
+  const classe = s.scaduta || !s.date ? 'riga-negativa' : (giorni <= 10 ? 'riga-vicina' : '');
+  return rigaSoldi(s.name + ' (' + quando + nota + ')', fmtEUR(s.amount) + ' €', classe);
 }
 
 function htmlCassaforte(c) {
@@ -854,15 +857,26 @@ function renderHome() {
     heroLabel.textContent = 'Spese libere da ' + monthLabel(dateFromISO(q.avvio));
     heroEl.textContent = fmtEUR(sl.budget) + ' €';
     heroEl.classList.remove('hero-negative');
-    heroCard.classList.remove('hero-card-negative');
+    heroCard.classList.remove('hero-card-negative', 'hero-giallo', 'hero-arancio');
+    document.getElementById('hero-stato').classList.add('hidden');
     heroSub.textContent = 'Il conteggio parte il ' + fmtGiorno(q.avvio) + ': da quel giorno qui vedi quanto puoi spendere oggi.';
     heroPace.classList.add('hidden');
   } else {
     const negativo = sl.restaOggi < 0;
     heroLabel.textContent = 'Oggi puoi spendere';
     heroEl.textContent = euro(sl.restaOggi);
-    heroEl.classList.toggle('hero-negative', negativo);
-    heroCard.classList.toggle('hero-card-negative', negativo);
+    // Stato: rosso se il mese è superato, arancione se oggi sei oltre la quota,
+    // giallo se resta meno di un quarto della quota di oggi, verde altrimenti.
+    const meseSuperato = sl.resto < 0;
+    const stato = meseSuperato ? 'rosso' : (negativo ? 'arancio' : (sl.restaOggi < sl.quotaOggi * 0.25 ? 'giallo' : 'verde'));
+    const parole = { verde: 'In linea', giallo: 'Quasi al limite di oggi', arancio: 'Oltre la quota di oggi', rosso: 'Mese superato' };
+    heroEl.classList.toggle('hero-negative', stato === 'rosso');
+    heroCard.classList.toggle('hero-card-negative', stato === 'rosso');
+    heroCard.classList.toggle('hero-giallo', stato === 'giallo');
+    heroCard.classList.toggle('hero-arancio', stato === 'arancio');
+    const pill = document.getElementById('hero-stato');
+    pill.textContent = parole[stato];
+    pill.classList.remove('hidden');
     const gg = sl.giorniRestanti === 1 ? '1 giorno' : sl.giorniRestanti + ' giorni';
     heroSub.textContent = sl.resto >= 0
       ? 'Restano ' + fmtEUR(sl.resto) + ' € di spese libere fino a fine mese (' + gg + ').'
