@@ -384,7 +384,31 @@
     };
   }
 
-  return { quadro, bonificoInizioMese, diagnosi, fisseDelMese, riservaImposta, nettoEntrata, dayKey, itemDay, addMonths };
+  // Crediti maturati al giorno indicato (settings.crediti): un mese di lavoro matura il primo
+  // del mese dopo; si scala quanto è già arrivato (voci arrivate col nome del debitore, dopo pagatoFino).
+  function crediti(data, giorno) {
+    const out = [];
+    for (const c of alive((data.settings || {}).crediti)) {
+      const [y1, m1] = c.dal.split('-').map(Number);
+      const [y2, m2] = monthOf(giorno).split('-').map(Number);
+      const mesi = Math.max(0, (y2 - y1) * 12 + (m2 - m1));
+      const rapporto = num(c.lordoMensile) ? num(c.nettoMensile) / num(c.lordoMensile) : 1;
+      let pagato = num(c.pagatoLordo);
+      const cerca = String(c.cerca || c.nome).toLowerCase();
+      for (const v of alive(data.incomeItems)) {
+        if (v.status !== 'arrivata' || !String(v.name || '').toLowerCase().includes(cerca)) continue;
+        const g = itemDay(v.receivedDate);
+        if (!g || g <= itemDay(c.pagatoFino) || g > giorno) continue;
+        const importo = num(v.receivedAmount != null ? v.receivedAmount : v.gross);
+        pagato += v.isGross ? importo : importo / rapporto;
+      }
+      const lordo = round(Math.max(num(c.lordoMensile) * mesi + num(c.extraLordo) - pagato, 0));
+      out.push({ id: c.id, nome: c.nome, lordo: lordo, netto: round(lordo * rapporto) });
+    }
+    return out;
+  }
+
+  return { quadro, bonificoInizioMese, diagnosi, fisseDelMese, riservaImposta, nettoEntrata, dayKey, itemDay, addMonths, crediti };
 });
 
 // Uso da riga di comando: legge {azione, data, now, mese, saldo} da stdin e stampa il risultato.

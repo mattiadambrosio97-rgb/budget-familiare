@@ -854,63 +854,79 @@ const MESI_BREVI = ['gen', 'feb', 'mar', 'apr', 'mag', 'giu', 'lug', 'ago', 'set
 function totalePatrimonio(f) { return (+f.fineco || 0) + (+f.contanti || 0) + (+f.tinaba || 0) + (+f.azioni || 0); }
 
 function graficoPatrimonio(mesi) {
-  // Linea, non barre: conta la variazione da un mese all'altro, quindi l'asse parte vicino al minimo.
+  // Due linee: i soldi che hai (continua) e il totale con i crediti netti (tratteggiata).
+  // Conta la variazione da un mese all'altro, quindi l'asse parte vicino al minimo.
   const W = 600, H = 200, top = 34, base = 160, sx = 28, n = mesi.length;
-  const vals = mesi.map(m => m.totale);
+  const vals = mesi.map(m => m.totale).concat(mesi.map(m => m.conCrediti));
   const minV = Math.min(...vals), maxV = Math.max(...vals);
   const pad = Math.max((maxV - minV) * 0.15, 100);
   const lo = minV - pad, hi = maxV + pad;
   const passo = n > 1 ? (W - 2 * sx) / (n - 1) : 0;
   const X = i => n > 1 ? sx + passo * i : W / 2;
   const Y = v => base - (v - lo) / (hi - lo) * (base - top);
-  const linea = n > 1 ? '<path class="pat-linea" d="' + mesi.map((m, i) => (i ? 'L' : 'M') + X(i).toFixed(1) + ' ' + Y(m.totale).toFixed(1)).join('') + '"/>' : '';
+  const linea = (chiave, classe) => n > 1 ? '<path class="' + classe + '" d="' + mesi.map((m, i) => (i ? 'L' : 'M') + X(i).toFixed(1) + ' ' + Y(m[chiave]).toFixed(1)).join('') + '"/>' : '';
   const larg = n > 1 ? passo : W;
+  const anchor = n === 1 ? 'middle' : 'end';
   const punti = mesi.map((m, i) => {
     const ultimo = i === n - 1;
     const diff = i ? m.totale - mesi[i - 1].totale : null;
-    const testo = m.etichetta + ': ' + fmtEUR(m.totale) + ' €' + (diff === null ? '' : ' (' + conSegno(diff) + ' sul mese prima)');
-    const anchor = n === 1 ? 'middle' : (ultimo ? 'end' : 'start');
-    const valore = ultimo
-      ? '<text class="pat-val" x="' + X(i) + '" y="' + (ultimo || n === 1 ? Y(m.totale) - 12 : Y(m.totale) + 24) + '" text-anchor="' + anchor + '">' + escapeHtml(fmtEUR(Math.round(m.totale)) + ' €') + '</text>' : '';
+    const testo = m.etichetta + ': hai ' + fmtEUR(m.totale) + ' €' + (diff === null ? '' : ' (' + conSegno(diff) + ' sul mese prima)') +
+      '; con i crediti ' + fmtEUR(m.conCrediti) + ' €';
     const mostraMese = n <= 6 || i % 2 === (n - 1) % 2;
     return '<g class="pat-punto' + (ultimo ? ' pat-ultimo' : '') + '" tabindex="0" aria-label="' + escapeHtml(testo) + '">' +
       '<title>' + escapeHtml(testo) + '</title>' +
       '<rect x="' + (X(i) - larg / 2) + '" y="0" width="' + larg + '" height="' + H + '" fill="transparent"/>' +
-      '<circle cx="' + X(i) + '" cy="' + Y(m.totale) + '" r="' + (ultimo ? 6 : 4.5) + '"/>' + valore +
-      (mostraMese ? '<text class="pat-mese" x="' + X(i) + '" y="' + (base + 26) + '" text-anchor="middle">' + escapeHtml(m.breve) + '</text>' : '') +
+      '<circle class="pat-c2" cx="' + X(i) + '" cy="' + Y(m.conCrediti) + '" r="4"/>' +
+      '<circle cx="' + X(i) + '" cy="' + Y(m.totale) + '" r="' + (ultimo ? 6 : 4.5) + '"/>' +
+      (ultimo ? '<text class="pat-val" x="' + X(i) + '" y="' + (Y(m.conCrediti) - 12) + '" text-anchor="' + anchor + '">' + escapeHtml(fmtEUR(Math.round(m.conCrediti)) + ' €') + '</text>' +
+        '<text class="pat-val" x="' + X(i) + '" y="' + (Y(m.totale) + 26) + '" text-anchor="' + anchor + '">' + escapeHtml(fmtEUR(Math.round(m.totale)) + ' €') + '</text>' : '') +
+      (mostraMese ? '<text class="pat-mese" x="' + X(i) + '" y="' + (base + 30) + '" text-anchor="middle">' + escapeHtml(m.breve) + '</text>' : '') +
       '</g>';
   }).join('');
-  return '<svg class="pat-grafico" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Patrimonio totale mese per mese">' +
-    '<line class="pat-asse" x1="0" x2="' + W + '" y1="' + (base + 8) + '" y2="' + (base + 8) + '"/>' + linea + punti + '</svg>';
+  return '<svg class="pat-grafico" viewBox="0 0 ' + W + ' ' + (H + 10) + '" role="img" aria-label="Patrimonio mese per mese, con e senza crediti">' +
+    '<line class="pat-asse" x1="0" x2="' + W + '" y1="' + (base + 12) + '" y2="' + (base + 12) + '"/>' +
+    linea('conCrediti', 'pat-linea pat-linea2') + linea('totale', 'pat-linea') + punti + '</svg>' +
+    '<div class="pat-legenda"><span><i class="pat-l1"></i>Soldi che hai</span><span><i class="pat-l2"></i>Con i crediti netti</span></div>';
 }
 
 function htmlPatrimonio() {
-  const st = ((lsRead('settings', {}).patrimonio || {}).storico || []).filter(f => f && f.data).slice().sort((a, b) => a.data.localeCompare(b.data));
+  const dati = datiCalcolo();
+  const st = (((dati.settings || {}).patrimonio || {}).storico || []).filter(f => f && f.data).slice().sort((a, b) => a.data.localeCompare(b.data));
   if (!st.length) return '';
   const f = st[st.length - 1];
   const tot = totalePatrimonio(f);
+  const oggi = todayISO();
+  const cr = BudgetCalcoli.crediti(dati, oggi);
+  const crNetto = cr.reduce((a, c) => a + c.netto, 0);
   const r = [
     rigaSoldi('Fineco, conto', fmtEUR(+f.fineco || 0) + ' €'),
     rigaSoldi('Contanti', fmtEUR(+f.contanti || 0) + ' €'),
     rigaSoldi('Tinaba, cassaforte e fondo emergenze', fmtEUR(+f.tinaba || 0) + ' €'),
     rigaSoldi('Azioni', fmtEUR(+f.azioni || 0) + ' €'),
-    rigaSoldi('= Patrimonio totale', fmtEUR(tot) + ' €', 'quadro-margin quadro-totale')
+    rigaSoldi('= Soldi che hai', fmtEUR(tot) + ' €', 'quadro-margin')
   ];
+  if (cr.length) {
+    for (const c of cr) r.push(rigaSoldi('+ ' + c.nome + ' ti deve' + (c.lordo !== c.netto ? ' ' + fmtEUR(c.lordo) + ' € lordi' : ''), fmtEUR(c.netto) + ' € netti', 'riga-credito'));
+    r.push(rigaSoldi('= Patrimonio con i crediti', fmtEUR(tot + crNetto) + ' €', 'quadro-margin quadro-totale'));
+  }
   // Un punto per mese: l'ultima fotografia di ogni mese, al massimo gli ultimi 12.
   const perMese = {};
   for (const x of st) perMese[x.data.slice(0, 7)] = x;
   const mesi = Object.keys(perMese).sort().slice(-12).map(k => {
     const [y, m] = k.split('-').map(Number);
-    return { k, totale: totalePatrimonio(perMese[k]), breve: MESI_BREVI[m - 1] + ' ' + String(y).slice(2), etichetta: MESI_BREVI[m - 1] + ' ' + y };
+    const foto = perMese[k];
+    const t = totalePatrimonio(foto);
+    const c = BudgetCalcoli.crediti(dati, foto.data).reduce((a, x) => a + x.netto, 0);
+    return { k, totale: t, conCrediti: t + c, breve: MESI_BREVI[m - 1] + ' ' + String(y).slice(2), etichetta: MESI_BREVI[m - 1] + ' ' + y };
   });
   let confronto = '';
   if (mesi.length >= 2) {
     const d = mesi[mesi.length - 1].totale - mesi[mesi.length - 2].totale;
-    confronto = '<p class="pat-confronto ' + (d >= 0 ? 'st-ok' : 'st-over') + '">' + (d >= 0 ? 'In crescita: ' : 'In calo: ') + conSegno(d) + ' rispetto al mese prima</p>';
+    confronto = '<p class="pat-confronto ' + (d >= 0 ? 'st-ok' : 'st-over') + '">' + (d >= 0 ? 'In crescita: ' : 'In calo: ') + conSegno(d) + ' di soldi che hai rispetto al mese prima</p>';
   }
-  const nota = mesi.length < 2
-    ? 'Valori del ' + fmtGiorno(f.data) + '. Il grafico si riempie un mese alla volta: ogni primo del mese Claude aggiunge un punto quando gli mandi i saldi.'
-    : 'Valori del ' + fmtGiorno(f.data) + '. La busta dei tuoi sfizi e i soldi di Michelle restano fuori.';
+  const nota = 'Saldi del ' + fmtGiorno(f.data) + ', crediti al ' + fmtGiorno(oggi) + ': un mese di lavoro conta dal primo del mese dopo, al netto di tasse e commercialista. ' +
+    (mesi.length < 2 ? 'Il grafico si riempie un mese alla volta: ogni primo del mese Claude aggiunge un punto quando gli mandi i saldi. ' : '') +
+    'La busta dei tuoi sfizi, i soldi di Michelle e il TFR di ADT restano fuori.';
   return riquadro('Patrimonio', righe(r) + confronto + graficoPatrimonio(mesi) + '<p class="money-hint">' + escapeHtml(nota) + '</p>');
 }
 

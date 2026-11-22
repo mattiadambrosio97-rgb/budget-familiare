@@ -943,3 +943,13 @@ select { appearance: none; -webkit-appearance: none; background-image: url("data
 .pat-grafico .pat-punto:focus { outline: none; }
 .pat-grafico .pat-mese { font-size: 13px; fill: var(--text-muted); }
 .pat-grafico .pat-val { font-size: 15px; font-weight: 700; fill: var(--text); }
+
+/* Patrimonio: crediti e seconda linea tratteggiata */
+.quadro-row.riga-credito span { color: var(--text-muted); }
+.pat-grafico .pat-linea2 { stroke: #b9a894; stroke-dasharray: 6 5; }
+.pat-grafico .pat-c2 { fill: #ffffff; stroke: #b9a894; stroke-width: 2; }
+.pat-legenda { display: flex; gap: 18px; flex-wrap: wrap; font-size: 13px; color: var(--text-muted); margin-top: 4px; }
+.pat-legenda span { display: inline-flex; align-items: center; gap: 6px; }
+.pat-legenda i { display: inline-block; width: 22px; height: 0; border-top: 2.5px solid #7c5a3a; }
+.pat-legenda i.pat-l2 { border-top: 2.5px dashed #b9a894; }
+.pat-grafico .pat-ultimo .pat-c2, .pat-grafico .pat-punto:hover .pat-c2 { fill: #ffffff; stroke: #b9a894; }

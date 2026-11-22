@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
-const { quadro, bonificoInizioMese, diagnosi } = createRequire(import.meta.url)('../calcoli.js');
+const { quadro, bonificoInizioMese, diagnosi, crediti } = createRequire(import.meta.url)('../calcoli.js');
 
 const categories = [
   { id: 'spesa-casa', name: 'Spesa e casa', group: 'variabile' },
@@ -177,4 +177,23 @@ test('avvio: prima del 1/12 il quadro lo segnala', () => {
   const q = quadro(base({ settings: { ...settings, avvio: '2026-12-01' } }), giorno(2026, 11, 22));
   assert.equal(q.primaDellAvvio, true);
   assert.equal(q.speseLibere.chiusuraIeri, null);
+});
+
+test('crediti: Manlio matura il primo del mese dopo e scala i pagamenti arrivati', () => {
+  const s = Object.assign({}, settings, { crediti: [
+    { id: 'manlio', nome: 'Manlio', dal: '2026-06', lordoMensile: 1700, nettoMensile: 1000, pagatoLordo: 3000, pagatoFino: '2026-11-22' },
+    { id: 'amgroup', nome: 'AM Group', dal: '2026-11', lordoMensile: 500, nettoMensile: 500, pagatoLordo: 0, pagatoFino: '2026-11-22' }
+  ] });
+  const d = base({ settings: s });
+  const al30 = crediti(d, '2026-11-30');
+  assert.deepEqual(al30.map(c => c.lordo), [5500, 0]);
+  assert.equal(al30[0].netto, 3235.29);
+  const al1 = crediti(d, '2026-12-01');
+  assert.deepEqual(al1.map(c => c.lordo), [7200, 500]);
+  const pagato = base({ settings: s, incomeItems: [
+    { id: 'x', name: 'Manlio (ottimistica)', gross: 3000, isGross: true, status: 'arrivata', receivedDate: '2026-12-20' },
+    { id: 'y', name: 'AM Group (novembre)', gross: 500, isGross: false, status: 'arrivata', receivedDate: '2026-12-15' },
+    { id: 'z', name: 'Manlio', gross: 3000, isGross: true, status: 'attesa', expectedDate: '2026-12-31' }
+  ] });
+  assert.deepEqual(crediti(pagato, '2026-12-31').map(c => c.lordo), [4200, 0]);
 });
